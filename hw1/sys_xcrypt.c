@@ -88,11 +88,14 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
                 goto keybufFail;
 	}
 	ker_buf->keybuf[usr_buf->keylen] = '\0';
+	goto returnFailure;
 keybufFail:
 	kfree(ker_buf->keybuf);
 outputFileFail:
+	printk("Freeing ker_buf->outfile\n");
 	kfree(ker_buf->outfile);
 inputFileFail:
+	printk("Freeing ker_buf->infile\n");
 	kfree(ker_buf->infile);
 returnFailure:
 	return err;
@@ -208,7 +211,6 @@ static int xcrypt_aes_encrypt(const void *key, int key_len, void *dst_buf,
 
 out_tfm:
 	crypto_free_blkcipher(tfm);
-	printk("KERN: Encrypt return value: %d\n", ret);
 	return ret;
 }
 
@@ -247,6 +249,15 @@ out_tfm:
 	return ret;
 }	
 
+void print_md5_hash(unsigned char *keybuf)
+{
+	int i;
+	printk("KERN: MD5 HASH: ");
+	for (i = 0; i < AES_BLOCK_SIZE; i++)
+		printk("%02x", keybuf[i]);
+	printk("\n");
+}
+
 /* 
 *  Function to calculate the MD5 hash of the given key. 
 *  The function prototype is based on example given in Linux documentation at 
@@ -258,16 +269,17 @@ int calculate_md5_hash (char *inp_key, int keylen, char *md5_hash)
 {
 	int ret = 0;
 	struct scatterlist sg[1];
-	struct crypto_hash *tfm;
-	struct hash_desc desc;
-	tfm = crypto_alloc_hash("md5", 0, CRYPTO_ALG_ASYNC);
+	struct crypto_hash *tfm = crypto_alloc_hash("md5", 0, CRYPTO_ALG_TYPE_HASH);
+	struct hash_desc desc = { .tfm = tfm, .flags = 0 };
 	if (IS_ERR(tfm))
 		return PTR_ERR(tfm);
-	
+	ret = crypto_hash_init(&desc);
+	if (ret != 0) {
+		ret = -EFAULT;
+		goto freehash;
+	}
 	sg_init_table(sg, 1);
 	sg_set_buf(sg, inp_key, keylen);
-	desc.tfm = tfm;
-	desc.flags = 0;
 	
 	if((ret = crypto_hash_digest(&desc, sg, 1, md5_hash)) != 0) {
 		ret = -EFAULT;
@@ -349,13 +361,11 @@ asmlinkage long xcrypt(void *arg)
 			goto closeOutputFile;
 		}
 		else {
-			printk("KERN: Comparing both MD5_hashes, AES_BLOCK_SIZE: %d\n", AES_BLOCK_SIZE);
 			if ((cmp = memcmp((void *)read_buf, (void *)md5_hash, AES_BLOCK_SIZE)) != 0) {
 				printk("KERN: Decryption, MD5 hash not matching\n");
 				ret = -EINVAL;
 				goto closeOutputFile;
 			}
-			printk("KERN: memcmp Return value: %d\n", cmp);
 		}
 	} else {
 		ret = -EINVAL;
@@ -394,6 +404,9 @@ freeReadBuf:
 closeInputFile:
 	filp_close(in_filp, NULL);
 copyFail:
+	kfree(ker_buf->infile);
+        kfree(ker_buf->outfile);
+        kfree(ker_buf->keybuf);
 	kfree(ker_buf);
 endReturn:
 	return ret;

@@ -52,7 +52,7 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			break;
 		case 'p':
 			send_buf->keybuf = (char *) malloc(MD5_DIGEST_LENGTH);
-			MD5((const unsigned char *) optarg, sizeof(optarg), md5_hash); 
+			MD5((const unsigned char *) optarg, strlen(optarg), md5_hash);
 			send_buf->keylen = MD5_DIGEST_LENGTH;
 			printf("MD5_DIGEST_LEN: %d\n", MD5_DIGEST_LENGTH);
 			#if 1
