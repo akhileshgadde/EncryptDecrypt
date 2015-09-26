@@ -433,7 +433,7 @@ asmlinkage long xcrypt(void *arg)
 			if ((cmp = memcmp((void *)read_buf, (void *)md5_hash, AES_BLOCK_SIZE)) != 0) {
 				printk("KERN: Decryption, MD5 hash not matching\n");
 				tmp_err_flag = 1;
-				ret = -EINVAL;
+				ret = -EPERM;
 				goto closeTmpFile;
 			}
 		}

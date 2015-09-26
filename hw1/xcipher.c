@@ -25,8 +25,8 @@ int main(int argc, char *argv[])
 	//void *dummy = (void *) argv[1];
 	readargs(argc, argv, send_buf);
   	rc = syscall(__NR_xcrypt, (void *)send_buf);
-	if (rc == 0)
-		printf("syscall returned %d\n", rc);
+	if (rc == 0) 
+		printf("syscall returned %d, successfully encrypted/decrypted file\n", rc);
 	else
 		printf("syscall returned %d (errno=%d, Error: %s)\n", rc, errno, strerror(errno));
 	if (send_buf->infile)
