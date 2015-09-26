@@ -1,5 +1,5 @@
 =============== HW1 SUBMISSION CSE 506 OPERATING SYSTEMS (Akhilesh Gadde) ====================
-Implementing a new system call for encypting and decrypting files using AES algorithm. The user program reads the arguments specified by the user in command line and packs them into a buffer and sends to the kernel. The system call in the kernel encrypts/decrypts the input file and gives a return value specifying if the operation has been successful or appropriate errno on failure.
+Implementing a new system call for encypting and decrypting files using AES algorithm. The user program reads the arguments specified by the user in command line and packs them into a buffer and sends to the kernel. The system call in the kernel encrypts/decrypts the input file and gives a return value specifying if the operation has been successful or appropriate errno on failure. AES CTR mode is used for encryption and decryption and no buffer padding is necessary if we use CTR mode. 
 
 Files Submitted
 ================
