@@ -12,4 +12,4 @@ xcrypt:
 
 clean:
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
-	rm -f xhw1
+	rm -f xcipher

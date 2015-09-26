@@ -28,7 +28,7 @@ int main(int argc, char *argv[])
 	if (rc == 0) 
 		printf("syscall returned %d, successfully encrypted/decrypted file\n", rc);
 	else
-		printf("syscall returned %d (errno=%d, Error: %s)\n", rc, errno, strerror(errno));
+		printf("syscall returned %d (Error %d: %s)\n", rc, errno, strerror(errno));
 	if (send_buf->infile)
 		free(send_buf->infile);
 	if (send_buf->outfile)

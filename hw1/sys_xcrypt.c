@@ -15,6 +15,7 @@ asmlinkage extern long (*sysptr)(void *arg);
 int userArgsCheck(struct args *usr_buf)
 {
 	int err = 0;
+	printk("KERN: Inside user Args check\n");
 	if ((usr_buf == NULL) || (!access_ok(VERIFY_READ, usr_buf, sizeof(struct args))))
 		err = -EFAULT;
 	if ((usr_buf->keybuf == NULL) || (!access_ok(VERIFY_READ, usr_buf->keybuf, usr_buf->keylen)))
@@ -44,6 +45,8 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
 {
 	int err = 0;
 	struct filename *file = NULL;
+	
+	printk("KERN: Inside Copy From User\n");
 	if((err = userArgsCheck(usr_buf)) != 0)
 		goto returnFailure;
 	if ((err = copy_from_user(ker_buf, usr_buf, sizeof(struct args)) != 0)) {
@@ -125,6 +128,7 @@ returnFailure:
 struct file* open_Input_File(const char *filename, int *err)
 {
 	struct file *filp = NULL;
+	printk("KERN: Inside OPEN Input File\n");
 	if (filename == NULL) {
 		*err = -EBADF;
 		goto returnFailure;
@@ -150,6 +154,7 @@ returnFailure:
 struct file* open_output_file(const char *filename, int *err, umode_t mode)
 {
 	struct file *filp = NULL;
+	printk("KERN: Inside open output file\n");
 	if (filename == NULL) {
 		*err = -EBADF;
 		goto returnFailure;
@@ -181,7 +186,7 @@ int read_input_file(struct file *filp, void *buf, size_t len)
 	set_fs(KERNEL_DS);
 	bytes = vfs_read(filp, buf, len, &filp->f_pos);
 	set_fs(oldfs);
-	printk("KERN: Bytes read: %d\n", bytes);
+	printk("KERN: Read file: Bytes: %d\n", bytes);
 	return bytes;
 }
 
@@ -194,7 +199,7 @@ int write_output_file(struct file *filp, void *buf, int size)
 	set_fs(KERNEL_DS);
 	bytes = vfs_write(filp, buf, size, &filp->f_pos);
 	set_fs(oldfs);
-        printk("KERN: Bytes written: %d\n", bytes);
+        printk("KERN: Write to file: buytes: %d\n", bytes);
         return bytes;
 }
 
@@ -342,6 +347,27 @@ end:
 }
 
 
+/*
+*  Function to check if file exists and if it is regular or not 
+*  Input: File structure; Return: 0 if success, errno on failure.
+*/
+int check_file (struct file *filp)
+{
+	int ret = 0;
+	printk("KERN: Iniside check_file");
+	if ((!filp) || (!IS_ERR(filp))) {
+		ret = -EPERM;
+		goto end;
+	}
+	printk("KERN: Checking File is regular\n");
+	if (!S_ISREG(filp->f_path.dentry->d_inode->i_mode)) {
+		ret = -EIO;
+		goto end;
+	}
+end:
+	return ret;
+}
+
 asmlinkage long xcrypt(void *arg)
 {
 	int ret;
@@ -371,6 +397,8 @@ asmlinkage long xcrypt(void *arg)
 		else
 			goto copyFail;
 	}
+	if ((ret = check_file(in_filp)) != 0)
+		goto closeInputFile;
 	read_buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
 	if (!read_buf) {
 		ret = -ENOMEM;
@@ -406,13 +434,6 @@ asmlinkage long xcrypt(void *arg)
 		else
 			goto freetmpfilename;
 	}
-	#if 0		
-	/*checking both input and tmp files are same */
-	if (in_filp->f_path.dentry->d_inode->i_ino == out_filp->f_path.dentry->d_inode->i_ino) {
-		ret = -EPERM;
-		goto closeOutputFile;
-	}
-	#endif
 	
 	/* Write MD5 Hash to output file if encrypting or read MD5 checksum and verify if decrypting */
 	if ((ret = calculate_md5_hash(ker_buf->keybuf, ker_buf->keylen, md5_hash)) != 0) {
@@ -478,6 +499,13 @@ asmlinkage long xcrypt(void *arg)
 		else
 			goto closeTmpFile;
 	}
+	/*checking both input and tmp files are same */
+        if (in_filp->f_path.dentry->d_inode->i_ino == out_filp->f_path.dentry->d_inode->i_ino) {
+                ret = -EPERM;
+                goto closeOutputFile;
+        }
+	 if ((ret = check_file(in_filp)) != 0)
+		goto closeOutputFile;
 	ret = file_rename(tmp_filp, out_filp);
 	printk("KERN: Input file: %s\n", ker_buf->infile);
 	printk("KERN: Tmp file: %s\n", tmp_file);
