@@ -18,11 +18,11 @@ int userArgsCheck(struct args *usr_buf)
 	if ((usr_buf == NULL) || (!access_ok(VERIFY_READ, usr_buf, sizeof(struct args))))
 		err = -EFAULT;
 	if ((usr_buf->keybuf == NULL) || (!access_ok(VERIFY_READ, usr_buf->keybuf, usr_buf->keylen)))
-		err = -EFAULT;
+		err = -EINVAL;
 	if ((usr_buf->infile == NULL) || (!access_ok(VERIFY_READ, usr_buf->infile, sizeof(usr_buf->infile))))
-		err = -EFAULT;
+		err = -EINVAL;
 	if ((usr_buf->outfile == NULL) || (!access_ok(VERIFY_READ, usr_buf->outfile, sizeof(usr_buf->outfile))))
-                err = -EFAULT;
+                err = -EINVAL;
 	return err;
 }
 
@@ -104,6 +104,10 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
                 goto keybufFail;
 	}
 	ker_buf->keybuf[usr_buf->keylen] = '\0';
+	if (strlen(ker_buf->keybuf) < AES_BLOCK_SIZE) {
+		err = -EINVAL;
+		goto keybufFail;
+	}
 	return err;
 keybufFail:
 	if (ker_buf->keybuf)

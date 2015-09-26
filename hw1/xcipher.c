@@ -63,10 +63,14 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			printf("Len: %d\n", strlen(optarg));
 			break;
 		case 'p':
+			if (strlen(optarg) < MIN_PASSWD_SIZE) {
+				printf("Unsafe password: Use 7 or more characters\n");
+				goto freesendbuf;
+			}
 			send_buf->keybuf = (char *) malloc(MD5_DIGEST_LENGTH);
 			if (!send_buf) {
 				printf("Malloc: No Memory\n");
-				goto failend;
+				goto freesendbuf;
 			}
 			MD5((const unsigned char *) optarg, strlen(optarg), md5_hash);
 			send_buf->keylen = MD5_DIGEST_LENGTH;
@@ -89,18 +93,19 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 				printf("Option -p requires an argument\n");
 			else
 				printf("Invalid option '-%c' specified\n", optopt);
-			exit(EXIT_FAILURE);
+			goto freekeybuf;
 		default:
-			exit(EXIT_FAILURE);
+			print_usage();
+			goto freekeybuf;
 		}
 	}
 		if ((encr_flag == 1) && (decr_flag == 1)) {
 			printf("Can perform only encryption or decryption at a time\n");
-			exit(EXIT_FAILURE);
+			goto freekeybuf;
 		}
 		else if ((encr_flag == 0) && (decr_flag == 0)) {
 			printf("No Encryption/Decryption specified.\n");
-			exit(EXIT_FAILURE);
+			goto freekeybuf;
 		}
 		if (optind < argc) {
 			len = strlen(argv[optind]);
@@ -113,7 +118,7 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			optind++;
 			if (optind >= argc) {
 				printf("Output file not specified\n");
-				exit (EXIT_FAILURE);
+				goto freeinfile;
 			}
 			len = strlen(argv[optind]);
 			send_buf->outfile = (char *) malloc(len);
@@ -125,21 +130,27 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			optind++;
 			if (optind < argc) {
 				printf("Un-recognizable arguments after filenames\n");
-                        	exit (EXIT_FAILURE);
+                        	goto freeoutfile;
 			}
 			//printf("input file: %s\n", send_buf->infile);
 			//printf("output file: %s\n", send_buf->outfile);
 		} else if (help_flag == 0) {
 			printf("Input and Output file names not specified\n");
-			exit (EXIT_FAILURE);
+			goto freeoutfile;
 		}
 	return;
-
+freeoutfile:
+	if (send_buf->outfile)
+		free(send_buf->outfile);
 freeinfile:
-	free(send_buf->infile);
+	if (send_buf->infile)
+		free(send_buf->infile);
 freekeybuf:
-	free(send_buf->keybuf);
-failend:
+	if (send_buf->keybuf)
+		free(send_buf->keybuf);
+freesendbuf:
+	if (send_buf)
+		free(send_buf);
 	exit(EXIT_FAILURE);
 }
 
