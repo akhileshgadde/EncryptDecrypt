@@ -104,8 +104,10 @@ returnFailure:
 struct file* open_Input_File(const char *filename, int *err)
 {
 	struct file *filp = NULL;
-	if (filename == NULL)
+	if (filename == NULL) {
+		*err = -EBADF;
 		goto returnFailure;
+	}
 	filp = filp_open(filename, O_EXCL | O_RDONLY, 0);
 	if (!filp || IS_ERR(filp)) {
                 printk("KERN: Inputfile read error %d\n", (int) PTR_ERR(filp));
@@ -127,9 +129,11 @@ returnFailure:
 struct file* open_output_file(const char *filename, int *err, umode_t mode)
 {
 	struct file *filp = NULL;
-	if (filename == NULL)
+	if (filename == NULL) {
+		*err = -EBADF;
 		goto returnFailure;
-	filp = filp_open(filename, O_WRONLY | O_CREAT, mode);
+	}
+	filp = filp_open(filename, O_WRONLY | O_CREAT | O_TRUNC, mode);
 	if (!filp || IS_ERR(filp)) {
                 printk("KERN: Outputfile write error %d\n", (int) PTR_ERR(filp));
                 *err = -ENOENT;
