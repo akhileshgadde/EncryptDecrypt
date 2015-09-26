@@ -192,7 +192,7 @@ struct file* open_Input_File(const char *filename, int *err)
 	}
 	if (IS_ERR(filp)) {
                 printk("KERN: Inputfile read error %d\n", (int) PTR_ERR(filp));
-                *err = -ENOENT;
+                *err = -EPERM;
 		filp = NULL;
 		goto returnFailure;
         }
