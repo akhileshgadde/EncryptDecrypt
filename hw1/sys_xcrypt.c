@@ -152,6 +152,27 @@ end:
 
 
 /*
+*	Function to check if file exists and if it is regular or not 
+*  	Input: File structure pointer. 
+*	Return: 0 if success, errno on failure.
+*/
+int check_file (struct file *filp)
+{
+	int ret = 0;
+	printk("KERN: Checking File is regular\n");
+	if (!S_ISREG(filp->f_path.dentry->d_inode->i_mode)) {
+		ret = -EIO;
+		goto end;
+	} else if (S_ISDIR(filp->f_path.dentry->d_inode->i_mode)) {
+		ret = -EPERM;
+		goto end;
+	}
+end:
+	return ret;
+}
+
+
+/*
 *	Function to open the input file for reading and check for correct permissions on the opened file.
 *	Input: File path and err to fill in errno
 *	Output:	File structure of opoened file on SUCCESS and NULL on FAILURE
@@ -165,7 +186,11 @@ struct file* open_Input_File(const char *filename, int *err)
 		goto returnFailure;
 	}
 	filp = filp_open(filename, O_EXCL | O_RDONLY, 0);
-	if (!filp || IS_ERR(filp)) {
+	if (!filp) {
+		 if ((*err = check_file(filp)) != 0)
+        	        goto returnFailure;
+	}
+	if (IS_ERR(filp)) {
                 printk("KERN: Inputfile read error %d\n", (int) PTR_ERR(filp));
                 *err = -ENOENT;
 		filp = NULL;
@@ -200,9 +225,14 @@ struct file* open_output_file(const char *filename, int *err, umode_t mode, int 
 		filp = filp_open(filename, O_WRONLY | O_CREAT | O_TRUNC, mode);
 	else  /* opening output file */
 		filp = filp_open(filename, O_WRONLY | O_CREAT, mode);
-	if (!filp || IS_ERR(filp)) {
+	if (!filp) {
+		if ((*err = check_file(filp)) != 0)
+         		goto returnFailure;
+	}
+	printk("KERN: Output file passed check_file\n");
+	if (IS_ERR(filp)) {
                 printk("KERN: Outputfile write error %d\n", (int) PTR_ERR(filp));
-                *err = -ENOENT;
+                *err = -EPERM;
 		filp = NULL;
 		goto returnFailure;
         }
@@ -423,24 +453,6 @@ end:
 
 
 /*
-*	Function to check if file exists and if it is regular or not 
-*  	Input: File structure pointer. 
-*	Return: 0 if success, errno on failure.
-*/
-int check_file (struct file *filp)
-{
-	int ret = 0;
-	printk("KERN: Checking File is regular\n");
-	if (!S_ISREG(filp->f_path.dentry->d_inode->i_mode)) {
-		ret = -EIO;
-		goto end;
-	}
-end:
-	return ret;
-}
-
-
-/*
 *	Main syscall function for encryption and decryption. Uses other helper functions to open 
 *	input, temp and output files. Also, calls othetr functions to read from input file, 
 *	encrypt/decrypt data and write to tmp file. The preamble containing the Key Hash value is also
@@ -502,6 +514,8 @@ asmlinkage long xcrypt(void *arg)
 		ret = -ENOMEM;
 		goto freemd5hash;
 	}
+	if ((ret = check_file(in_filp) != 0))
+		goto freetmpfilename;
 	/* Filename for the temporary file */
 	strcpy(tmp_file, ".");
 	strcat(tmp_file, ker_buf->infile);
@@ -510,13 +524,15 @@ asmlinkage long xcrypt(void *arg)
 	/*checking max size of tmp file path */
 	if ((ret = checkFilePathMax(tmp_file)) != 0)
 		goto freetmpfilename;
-	/*Open tmp and output files */
+	/* Open tmp and output files */
 	if ((tmp_filp = open_output_file(tmp_file, &ret, in_filp->f_path.dentry->d_inode->i_mode, 0)) == NULL) {
 		if (ret == -EACCES)
 			goto closeTmpFile;
 		else
 			goto freetmpfilename;
 	}
+	if ((ret = check_file(tmp_filp) != 0))
+                goto freetmpfilename;
 	
 	/* Write MD5 Hash to output file if encrypting or read MD5 checksum and verify if decrypting */
 	if ((ret = calculate_md5_hash(ker_buf->keybuf, ker_buf->keylen, md5_hash)) != 0) {
@@ -582,6 +598,9 @@ asmlinkage long xcrypt(void *arg)
 		else
 			goto closeTmpFile;
 	}
+	if ((ret = check_file(out_filp) != 0))
+                goto closeOutputFile;
+
 	/*checking both input and tmp files are same */
         if (in_filp->f_path.dentry->d_inode->i_ino == out_filp->f_path.dentry->d_inode->i_ino) {
                 ret = -EPERM;
