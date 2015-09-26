@@ -90,13 +90,14 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
 	ker_buf->keybuf[usr_buf->keylen] = '\0';
 	return err;
 keybufFail:
-	kfree(ker_buf->keybuf);
+	if (ker_buf->keybuf)
+		kfree(ker_buf->keybuf);
 outputFileFail:
-	printk("Freeing ker_buf->outfile\n");
-	kfree(ker_buf->outfile);
+	if (ker_buf->outfile)
+		kfree(ker_buf->outfile);
 inputFileFail:
-	printk("Freeing ker_buf->infile\n");
-	kfree(ker_buf->infile);
+	if (ker_buf->infile)
+		kfree(ker_buf->infile);
 returnFailure:
 	return err;
 }
@@ -400,18 +401,25 @@ asmlinkage long xcrypt(void *arg)
 closeOutputFile:
 	filp_close(out_filp, NULL);
 freemd5hash:
-	kfree(md5_hash);
+	if (md5_hash)
+		kfree(md5_hash);
 freewritebuf:
-	kfree(write_buf);
+	if (write_buf)
+		kfree(write_buf);
 freeReadBuf:
-	kfree(read_buf);
+	if (read_buf)
+		kfree(read_buf);
 closeInputFile:
 	filp_close(in_filp, NULL);
 copyFail:
-	kfree(ker_buf->infile);
-        kfree(ker_buf->outfile);
-        kfree(ker_buf->keybuf);
-	kfree(ker_buf);
+	if (ker_buf->infile)
+		kfree(ker_buf->infile);
+        if (ker_buf->outfile)
+		kfree(ker_buf->outfile);
+        if (ker_buf->keybuf)
+		kfree(ker_buf->keybuf);
+	if (ker_buf)
+		kfree(ker_buf);
 endReturn:
 	return ret;
 }
