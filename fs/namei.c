@@ -205,6 +205,8 @@ getname(const char __user * filename)
 	return getname_flags(filename, 0, NULL);
 }
 
+EXPORT_SYMBOL(getname);
+
 struct filename *
 getname_kernel(const char * filename)
 {
@@ -256,6 +258,7 @@ void putname(struct filename *name)
 		__putname(name);
 }
 
+EXPORT_SYMBOL(putname);
 static int check_acl(struct inode *inode, int mask)
 {
 #ifdef CONFIG_FS_POSIX_ACL
