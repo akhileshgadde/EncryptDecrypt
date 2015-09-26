@@ -462,9 +462,11 @@ asmlinkage long xcrypt(void *arg)
 	printk("KERN: Output file: %s\n", ker_buf->outfile);
 
 closeOutputFile:
-	filp_close(out_filp, NULL);
+	if (out_filp)
+		filp_close(out_filp, NULL);
 closeTmpFile:
-	filp_close(tmp_filp, NULL);
+	if (tmp_filp)
+		filp_close(tmp_filp, NULL);
 freetmpfilename:
 	if (tmp_file)
 		kfree(tmp_file);
@@ -478,7 +480,8 @@ freeReadBuf:
 	if (read_buf)
 		kfree(read_buf);
 closeInputFile:
-	filp_close(in_filp, NULL);
+	if (in_filp)
+		filp_close(in_filp, NULL);
 copyFail:
 	if (ker_buf->infile)
 		kfree(ker_buf->infile);
