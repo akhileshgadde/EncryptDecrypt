@@ -185,10 +185,10 @@ returnFailure:
 
 /*
 *       Function to open the output file for writing and check for correct permissions on the opened file.
-*       Input: File path and err to fill in errno
+*       Input: File path and err to fill in errno and flags to indicate temp or output file.
 *       Output: File structure of opoened file on SUCCESS and NULL on FAILURE
 */
-struct file* open_output_file(const char *filename, int *err, umode_t mode)
+struct file* open_output_file(const char *filename, int *err, umode_t mode, int flags)
 {
 	struct file *filp = NULL;
 	printk("KERN: Inside open output file\n");
@@ -196,7 +196,10 @@ struct file* open_output_file(const char *filename, int *err, umode_t mode)
 		*err = -EBADF;
 		goto returnFailure;
 	}
-	filp = filp_open(filename, O_WRONLY | O_CREAT, mode);
+	if (flags == 0) /* opening temp file */
+		filp = filp_open(filename, O_WRONLY | O_CREAT | O_TRUNC, mode);
+	else  /* opening output file */
+		filp = filp_open(filename, O_WRONLY | O_CREAT, mode);
 	if (!filp || IS_ERR(filp)) {
                 printk("KERN: Outputfile write error %d\n", (int) PTR_ERR(filp));
                 *err = -ENOENT;
@@ -427,11 +430,6 @@ end:
 int check_file (struct file *filp)
 {
 	int ret = 0;
-	printk("KERN: Iniside check_file");
-	if ((!filp) || (!IS_ERR(filp))) {
-		ret = -EPERM;
-		goto end;
-	}
 	printk("KERN: Checking File is regular\n");
 	if (!S_ISREG(filp->f_path.dentry->d_inode->i_mode)) {
 		ret = -EIO;
@@ -474,13 +472,16 @@ asmlinkage long xcrypt(void *arg)
 		goto copyFail;
 	/* Open input and output files for reading and writing respectively */
 	if ((in_filp = open_Input_File(ker_buf->infile, &ret)) == NULL) {
+		printk("KERN: Open Input file returned NULL\n");
 		if (ret == -EACCES)
 			goto closeInputFile;
 		else
 			goto copyFail;
 	}
-	if ((ret = check_file(in_filp)) != 0)
+	if ((ret = check_file(in_filp)) != 0) {
+		printk("KERN: Check input file returned err: %d\n", ret);
 		goto closeInputFile;
+	}
 	read_buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
 	if (!read_buf) {
 		ret = -ENOMEM;
@@ -510,7 +511,7 @@ asmlinkage long xcrypt(void *arg)
 	if ((ret = checkFilePathMax(tmp_file)) != 0)
 		goto freetmpfilename;
 	/*Open tmp and output files */
-	if ((tmp_filp = open_output_file(tmp_file, &ret, in_filp->f_path.dentry->d_inode->i_mode)) == NULL) {
+	if ((tmp_filp = open_output_file(tmp_file, &ret, in_filp->f_path.dentry->d_inode->i_mode, 0)) == NULL) {
 		if (ret == -EACCES)
 			goto closeTmpFile;
 		else
@@ -574,7 +575,7 @@ asmlinkage long xcrypt(void *arg)
 		} 
 	}
 	
-	if ((out_filp = open_output_file(ker_buf->outfile, &ret, in_filp->f_path.dentry->d_inode->i_mode)) == NULL) {
+	if ((out_filp = open_output_file(ker_buf->outfile, &ret, in_filp->f_path.dentry->d_inode->i_mode, 1)) == NULL) {
 		tmp_err_flag = 1;
 		if (ret == -EACCES)
 			goto closeOutputFile;
@@ -584,6 +585,7 @@ asmlinkage long xcrypt(void *arg)
 	/*checking both input and tmp files are same */
         if (in_filp->f_path.dentry->d_inode->i_ino == out_filp->f_path.dentry->d_inode->i_ino) {
                 ret = -EPERM;
+		tmp_err_flag = 1;
                 goto closeOutputFile;
         }
 	 if ((ret = check_file(in_filp)) != 0)
