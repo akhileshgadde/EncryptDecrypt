@@ -28,7 +28,7 @@ int main(int argc, char *argv[])
 	if (rc == 0)
 		printf("syscall returned %d\n", rc);
 	else
-		printf("syscall returned %d (errno=%d)\n", rc, errno);
+		printf("syscall returned %d (errno=%d, Error: %s)\n", rc, errno, strerror(errno));
 	if (send_buf->infile)
 		free(send_buf->infile);
 	if (send_buf->outfile)
@@ -44,7 +44,6 @@ end:
 void readargs (int argc, char *argv[], struct args *send_buf)
 {
 	int opt = 0;
-	int i;
 	int encr_flag = 0, decr_flag = 0, help_flag = 0; 
 	unsigned char md5_hash[MD5_DIGEST_LENGTH];
 	int len;
@@ -71,8 +70,8 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			}
 			MD5((const unsigned char *) optarg, strlen(optarg), md5_hash);
 			send_buf->keylen = MD5_DIGEST_LENGTH;
-			printf("MD5_DIGEST_LEN: %d\n", MD5_DIGEST_LENGTH);
-			#if 1
+			//printf("MD5_DIGEST_LEN: %d\n", MD5_DIGEST_LENGTH);
+			#if 0
 			printf("MD5 Hash: \n");
 			for (i = 0; i < 16; i++)
 				printf("%02x", md5_hash[i]);
@@ -86,7 +85,10 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			print_usage();
 			break;
 		case '?':
-			printf("Invalid option '-%c' specified\n", optopt);
+			if (optopt == 'p')
+				printf("Option -p requires an argument\n");
+			else
+				printf("Invalid option '-%c' specified\n", optopt);
 			exit(EXIT_FAILURE);
 		default:
 			exit(EXIT_FAILURE);
@@ -94,6 +96,10 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 	}
 		if ((encr_flag == 1) && (decr_flag == 1)) {
 			printf("Can perform only encryption or decryption at a time\n");
+			exit(EXIT_FAILURE);
+		}
+		else if ((encr_flag == 0) && (decr_flag == 0)) {
+			printf("No Encryption/Decryption specified.\n");
 			exit(EXIT_FAILURE);
 		}
 		if (optind < argc) {
@@ -121,8 +127,8 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 				printf("Un-recognizable arguments after filenames\n");
                         	exit (EXIT_FAILURE);
 			}
-			printf("input file: %s\n", send_buf->infile);
-			printf("output file: %s\n", send_buf->outfile);
+			//printf("input file: %s\n", send_buf->infile);
+			//printf("output file: %s\n", send_buf->outfile);
 		} else if (help_flag == 0) {
 			printf("Input and Output file names not specified\n");
 			exit (EXIT_FAILURE);

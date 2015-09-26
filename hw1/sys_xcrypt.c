@@ -50,6 +50,12 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
 		err = -EFAULT;
 		goto returnFailure;
 	}
+	
+	if ((ker_buf->flags != 0) && (ker_buf->flags != 1)) {
+		err = -EPERM;
+		goto returnFailure;
+	}
+	
 	file = getname(usr_buf->infile);
 	if (!file) {
 		err = -EINVAL;
@@ -89,11 +95,11 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
         ker_buf->outfile[strlen(file->name)] = '\0';
         putname(file);
 
-	//printk("KERN: usrbuf_keybuf: %s, keylen: %d\n", usr_buf->keybuf, usr_buf->keylen);	
 	ker_buf->keybuf = kmalloc(usr_buf->keylen + 1, GFP_KERNEL);
         if ((err = checkCharMemAlloc(ker_buf->keybuf)) != 0)
                 goto outputFileFail;
 	if ((err = copy_from_user(ker_buf->keybuf, usr_buf->keybuf, usr_buf->keylen)) != 0) {
+		printk("KERN: Error copying from user to kernel\n");
 		err = -EFAULT;
                 goto keybufFail;
 	}
@@ -144,7 +150,7 @@ struct file* open_output_file(const char *filename, int *err, umode_t mode)
 		*err = -EBADF;
 		goto returnFailure;
 	}
-	filp = filp_open(filename, O_WRONLY | O_CREAT | O_TRUNC, mode);
+	filp = filp_open(filename, O_WRONLY | O_CREAT, mode);
 	if (!filp || IS_ERR(filp)) {
                 printk("KERN: Outputfile write error %d\n", (int) PTR_ERR(filp));
                 *err = -ENOENT;
@@ -326,7 +332,7 @@ int file_rename(struct file *tmp_filp, struct file *out_filp)
 	} else
 		goto end;
 unlinkoutputfile:
-	err = vfs_unlink(tmp_filp->f_path.dentry->d_parent->d_inode, tmp_filp->f_path.dentry, NULL);
+	vfs_unlink(tmp_filp->f_path.dentry->d_parent->d_inode, tmp_filp->f_path.dentry, NULL);
 end:
 	return err;
 }
@@ -342,6 +348,7 @@ asmlinkage long xcrypt(void *arg)
 	char *tmp_file;
 	int bytes_read = 0;
 	int bytes_written = 0;
+	int tmp_err_flag = 0;
 	char *read_buf;
 	int cmp = 0;char *write_buf;
 	char *md5_hash;
@@ -395,44 +402,43 @@ asmlinkage long xcrypt(void *arg)
 		else
 			goto freetmpfilename;
 	}
-	
-	if ((out_filp = open_output_file(ker_buf->outfile, &ret, in_filp->f_path.dentry->d_inode->i_mode)) == NULL) {
-		if (ret == -EACCES)
-			goto closeOutputFile;
-		else
-			goto closeTmpFile;
-	}
-	
+	#if 0		
 	/*checking both input and tmp files are same */
 	if (in_filp->f_path.dentry->d_inode->i_ino == out_filp->f_path.dentry->d_inode->i_ino) {
 		ret = -EPERM;
 		goto closeOutputFile;
 	}
+	#endif
 	
 	/* Write MD5 Hash to output file if encrypting or read MD5 checksum and verify if decrypting */
 	if ((ret = calculate_md5_hash(ker_buf->keybuf, ker_buf->keylen, md5_hash)) != 0) {
 		ret = -EFAULT;
+		tmp_err_flag = 1;
 		goto closeTmpFile;
 	}
 	
 	if (ker_buf->flags == 1) { /*encryption */
 		if ((bytes_written = write_output_file(tmp_filp, md5_hash, AES_BLOCK_SIZE)) != AES_BLOCK_SIZE) {
+			tmp_err_flag = 1;
 			ret = -EFAULT;
 			goto closeTmpFile;
 		}
 	} else if (ker_buf->flags == 0) { /* Decryption */
 		if ((bytes_read = read_input_file (in_filp, read_buf, AES_BLOCK_SIZE)) != AES_BLOCK_SIZE) {
+			tmp_err_flag = 1;
 			ret = -EFAULT;
 			goto closeTmpFile;
 		}
 		else {
 			if ((cmp = memcmp((void *)read_buf, (void *)md5_hash, AES_BLOCK_SIZE)) != 0) {
 				printk("KERN: Decryption, MD5 hash not matching\n");
+				tmp_err_flag = 1;
 				ret = -EINVAL;
 				goto closeTmpFile;
 			}
 		}
-	} else {
+	} else {	
+		tmp_err_flag = 1;
 		ret = -EINVAL;
 		goto closeTmpFile;
 	}
@@ -445,16 +451,28 @@ asmlinkage long xcrypt(void *arg)
 			ret = xcrypt_aes_decrypt(ker_buf->keybuf, AES_BLOCK_SIZE, write_buf, bytes_read, read_buf, bytes_read);
 		else {
 			ret = -EINVAL;
+			tmp_err_flag = 1;
 			goto closeTmpFile;
 		}	
 		if (ret < 0) {
+			printk("KERN: Error in reading\n");
                 	ret = -EFAULT;
+			tmp_err_flag = 1;
                         goto closeTmpFile;
                 }
 		if ((bytes_written = write_output_file(tmp_filp, write_buf, bytes_read)) == 0) {
 			ret = -EINVAL;
+			tmp_err_flag = 1;
 			goto closeTmpFile;
 		} 
+	}
+	
+	if ((out_filp = open_output_file(ker_buf->outfile, &ret, in_filp->f_path.dentry->d_inode->i_mode)) == NULL) {
+		tmp_err_flag = 1;
+		if (ret == -EACCES)
+			goto closeOutputFile;
+		else
+			goto closeTmpFile;
 	}
 	ret = file_rename(tmp_filp, out_filp);
 	printk("KERN: Input file: %s\n", ker_buf->infile);
@@ -467,6 +485,8 @@ closeOutputFile:
 closeTmpFile:
 	if (tmp_filp)
 		filp_close(tmp_filp, NULL);
+	if (tmp_err_flag)
+		vfs_unlink(tmp_filp->f_path.dentry->d_parent->d_inode, tmp_filp->f_path.dentry, NULL);	
 freetmpfilename:
 	if (tmp_file)
 		kfree(tmp_file);
