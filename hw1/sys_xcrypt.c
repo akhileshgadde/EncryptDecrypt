@@ -305,17 +305,36 @@ freehash:
 	return ret;		
 }
 
-#if 0
+
 int file_rename(struct file *tmp_filp, struct file *out_filp)
 {
-	
+	int err = 0;
+	if ((!tmp_filp) || (!out_filp)) {
+		err = -EINVAL;
+		goto end;
+	}
+	if (tmp_filp->f_path.dentry->d_inode->i_ino == out_filp->f_path.dentry->d_inode->i_ino) {
+        	err = -EPERM;
+                goto end;
+        }
+	err = vfs_rename(tmp_filp->f_path.dentry->d_parent->d_inode, tmp_filp->f_path.dentry, \
+			out_filp->f_path.dentry->d_parent->d_inode, out_filp->f_path.dentry, NULL, 0);
+	if (err != 0) {
+		printk("KERN: File rename error\n");
+		err = -EACCES;
+		goto unlinkoutputfile;
+	} else
+		goto end;
+unlinkoutputfile:
+	err = vfs_unlink(tmp_filp->f_path.dentry->d_parent->d_inode, tmp_filp->f_path.dentry, NULL);
+end:
+	return err;
 }
-#endif
+
 
 asmlinkage long xcrypt(void *arg)
 {
 	int ret;
-	/* dummy syscall: returns 0 for non null, -EINVAL for NULL */
 	struct args *ker_buf;
 	struct file *in_filp = NULL;
 	struct file *tmp_filp = NULL;
@@ -324,8 +343,7 @@ asmlinkage long xcrypt(void *arg)
 	int bytes_read = 0;
 	int bytes_written = 0;
 	char *read_buf;
-	int cmp = 0;
-	char *write_buf;
+	int cmp = 0;char *write_buf;
 	char *md5_hash;
 	ker_buf = kmalloc(sizeof(struct args), GFP_KERNEL);
 	if (!ker_buf) {
@@ -370,7 +388,7 @@ asmlinkage long xcrypt(void *arg)
 	/*checking max size of tmp file path */
 	if ((ret = checkFilePathMax(tmp_file)) != 0)
 		goto freetmpfilename;
-	/*Open and write to temp file */
+	/*Open tmp and output files */
 	if ((tmp_filp = open_output_file(tmp_file, &ret, in_filp->f_path.dentry->d_inode->i_mode)) == NULL) {
 		if (ret == -EACCES)
 			goto closeTmpFile;
@@ -378,10 +396,17 @@ asmlinkage long xcrypt(void *arg)
 			goto freetmpfilename;
 	}
 	
+	if ((out_filp = open_output_file(ker_buf->outfile, &ret, in_filp->f_path.dentry->d_inode->i_mode)) == NULL) {
+		if (ret == -EACCES)
+			goto closeOutputFile;
+		else
+			goto closeTmpFile;
+	}
+	
 	/*checking both input and tmp files are same */
-	if (in_filp->f_path.dentry->d_inode->i_ino == tmp_filp->f_path.dentry->d_inode->i_ino) {
+	if (in_filp->f_path.dentry->d_inode->i_ino == out_filp->f_path.dentry->d_inode->i_ino) {
 		ret = -EPERM;
-		goto closeTmpFile;
+		goto closeOutputFile;
 	}
 	
 	/* Write MD5 Hash to output file if encrypting or read MD5 checksum and verify if decrypting */
@@ -431,9 +456,13 @@ asmlinkage long xcrypt(void *arg)
 			goto closeTmpFile;
 		} 
 	}
+	ret = file_rename(tmp_filp, out_filp);
 	printk("KERN: Input file: %s\n", ker_buf->infile);
 	printk("KERN: Tmp file: %s\n", tmp_file);
+	printk("KERN: Output file: %s\n", ker_buf->outfile);
 
+closeOutputFile:
+	filp_close(out_filp, NULL);
 closeTmpFile:
 	filp_close(tmp_filp, NULL);
 freetmpfilename:
