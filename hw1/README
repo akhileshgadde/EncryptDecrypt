@@ -38,6 +38,8 @@ h. After the writes are successful to the tmpfile, now vfs_rename() funtion in f
 If the creation/opening or writing to output file fails, the temp file is removed using vfs_unlink() function. Failure cases include output permissions not valid, input and output pointing to same file using links or output file is directory, etc. All failure cases lead to deletion of tmp file.
 Also, if the output file already exists and the encryption fails mid-way, the temp file is only deleted and there is no change on the actual filename thus preserving the integrity of the original output file.
 
+i. For zero sized files, the code creates an output file with only key checksum inside the file incase of encryption and when decrypting the same encrypted file, it would return the original file of size zero. 
+
 References
 ------------
 1. http://stackoverflow.com/questions/7627723/how-to-create-a-md5-hash-of-a-string-in-c 
