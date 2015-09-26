@@ -8,14 +8,21 @@
 #include <linux/scatterlist.h>
 #include "xcipher.h"
 
+/* Initial IV value for AES-CTR mode of encryption */
 static const u8 *aes_iv = (u8 *)XCRYPT_AES_IV;
 
+/* Hooking the system call and Loadabale kernel module */
 asmlinkage extern long (*sysptr)(void *arg);
 
+
+/*
+*	Function to check if the user provided arguments are valid and not NULL
+*	Input: User buffer pointer
+*	Output: 0 on SUCCESS and errno on FAILURE
+*/ 
 int userArgsCheck(struct args *usr_buf)
 {
 	int err = 0;
-	printk("KERN: Inside user Args check\n");
 	if ((usr_buf == NULL) || (!access_ok(VERIFY_READ, usr_buf, sizeof(struct args))))
 		err = -EFAULT;
 	if ((usr_buf->keybuf == NULL) || (!access_ok(VERIFY_READ, usr_buf->keybuf, usr_buf->keylen)))
@@ -27,6 +34,12 @@ int userArgsCheck(struct args *usr_buf)
 	return err;
 }
 
+
+/*
+*	Function to check if kmalloc was able to allocate memory for a char pointer
+*	Input: malloc'ed char pointer
+*	Output: 0 on SUCCESS and errno on FAILURE
+*/
 int checkCharMemAlloc (char *ptr)
 {
 	if (!ptr) 
@@ -34,6 +47,12 @@ int checkCharMemAlloc (char *ptr)
 	return 0;
 }
 
+
+/*
+*	Function to check if the pathname of the file exceeds the maximum Linux path limit
+*	Input: File path
+*	Output: 0 on SUCCESS, errno on FAILURE
+*/
 int checkFilePathMax (const char *path)
 {
 	if (strlen(path) > PATH_MAX)
@@ -41,34 +60,40 @@ int checkFilePathMax (const char *path)
 	return 0;
 }
 
+
+/*
+*	Function to copy the user provided buffer structure from user space to Kernel space.
+*	Also, allocates memory for pointers inside the structure and copies them to kernel land
+*	Input: User buffer pointer and Kernel buffer pointer
+*	Output: 0 on SUCCESS and errno on FAILURE
+*/
 int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
 {
 	int err = 0;
 	struct filename *file = NULL;
 	
-	printk("KERN: Inside Copy From User\n");
 	if((err = userArgsCheck(usr_buf)) != 0)
-		goto returnFailure;
+		goto end;
 	if ((err = copy_from_user(ker_buf, usr_buf, sizeof(struct args)) != 0)) {
 		err = -EFAULT;
-		goto returnFailure;
+		goto end;
 	}
 	
 	if ((ker_buf->flags != 0) && (ker_buf->flags != 1)) {
 		err = -EPERM;
-		goto returnFailure;
+		goto end;
 	}
 	
 	file = getname(usr_buf->infile);
 	if (!file) {
 		err = -EINVAL;
-		goto returnFailure;
+		goto end;
 	}
 	if ((err = checkFilePathMax(file->name)) != 0) 
-		goto returnFailure;
+		goto end;
 	ker_buf->infile = kmalloc(strlen(file->name) + 1, GFP_KERNEL);
 	if ((err = checkCharMemAlloc(ker_buf->infile)) != 0)
-		goto returnFailure;
+		goto end;
 	strncpy(ker_buf->infile, file->name, strlen(file->name));
 	if (ker_buf->infile == NULL) {
 		err = -ENOENT;
@@ -111,7 +136,7 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
 		err = -EINVAL;
 		goto keybufFail;
 	}
-	return err;
+	goto end;
 keybufFail:
 	if (ker_buf->keybuf)
 		kfree(ker_buf->keybuf);
@@ -121,10 +146,16 @@ outputFileFail:
 inputFileFail:
 	if (ker_buf->infile)
 		kfree(ker_buf->infile);
-returnFailure:
+end:
 	return err;
 }
 
+
+/*
+*	Function to open the input file for reading and check for correct permissions on the opened file.
+*	Input: File path and err to fill in errno
+*	Output:	File structure of opoened file on SUCCESS and NULL on FAILURE
+*/
 struct file* open_Input_File(const char *filename, int *err)
 {
 	struct file *filp = NULL;
@@ -151,6 +182,12 @@ returnFailure:
 	return filp;
 }
 
+
+/*
+*       Function to open the output file for writing and check for correct permissions on the opened file.
+*       Input: File path and err to fill in errno
+*       Output: File structure of opoened file on SUCCESS and NULL on FAILURE
+*/
 struct file* open_output_file(const char *filename, int *err, umode_t mode)
 {
 	struct file *filp = NULL;
@@ -178,6 +215,11 @@ returnFailure:
 }
 
 
+/* 
+*	Read data from the file given by the File structure and return the # of bytes read
+*	Input: File structure, Buffer to read and length
+*	Output: #Bytes read
+*/
 int read_input_file(struct file *filp, void *buf, size_t len)
 {
 	mm_segment_t oldfs;
@@ -191,6 +233,11 @@ int read_input_file(struct file *filp, void *buf, size_t len)
 }
 
 
+/* 
+*       Write data to the file given by the File structure and return the # of bytes read
+*       Input: File structure, Buffer to read and size
+*       Output: #Bytes written
+*/
 int write_output_file(struct file *filp, void *buf, int size)
 {
 	mm_segment_t oldfs;
@@ -203,7 +250,16 @@ int write_output_file(struct file *filp, void *buf, int size)
         return bytes;
 }
 
-/* Encryption function has been copied from linux/net/ceph/crypto.c (ceph_aes_encrypt) and made a few modifications to suit our system call. Code credits go to the original author of the file */
+
+/* 
+*	Funtion to encrypt the given data. crypto_blkcipher is a helper function to return the encryption 
+*	type.
+*	Encryption function has been copied from linux/net/ceph/crypto.c (ceph_aes_encrypt) and made 
+*	a few modifications to suit our system call. Code credits go to the original author of the file 
+*	Input: Encryption Key, Key length, Destination buffer and it's length, Source buffer and it's 
+*	length.
+*	Output: 0 on SUCCESS and errno on FAILURE.
+*/
 static struct crypto_blkcipher *xcrypt_crypto_alloc_cipher(void)
 {
 	return crypto_alloc_blkcipher("ctr(aes)", 0, CRYPTO_ALG_ASYNC);
@@ -226,9 +282,6 @@ static int xcrypt_aes_encrypt(const void *key, int key_len, void *dst_buf,
 	sg_init_table(sg_out, 1);
 	sg_set_buf(sg_in, src_buf, src_len);
 	sg_set_buf(sg_out, dst_buf, dst_len);
-	//ret = setup_sgtable(&sg_out, &prealloc_sg, dst_buf, dst_len);
-	//if (ret)
-	//	goto out_tfm;
 	crypto_blkcipher_setkey((void *)tfm, key, key_len);
 	iv =  crypto_blkcipher_crt(tfm)->iv;
 	ivsize = crypto_blkcipher_ivsize(tfm);
@@ -244,8 +297,15 @@ out_tfm:
 	return ret;
 }
 
-/* Decryption function has been copied from linux/net/ceph/crypto.c (ceph_aes_decrypt) and made a few modifications to suit our system call. Code credits go to the original author of the file */
 
+/* 
+*       Funtion to decrypt the given data.
+*       Decryption function has been copied from linux/net/ceph/crypto.c (ceph_aes_decrypt) and made 
+*       a few modifications to suit our system call. Code credits go to the original author of the file. 
+*       Input: Decryption Key, Key length, Destination buffer and it's length, Source buffer and it's 
+*       length.
+*       Output: 0 on SUCCESS and errno on FAILURE.
+*/
 static int xcrypt_aes_decrypt(const void *key, int key_len, void *dst_buf,
 			      size_t dst_len, const void *src_buf, size_t src_len)
 {
@@ -279,6 +339,12 @@ out_tfm:
 	return ret;
 }	
 
+
+/*
+*	Function to print the generated MD5 hash in hex format. Mainly for debugging purposes
+*	Input: MD5 hash value
+* 	Output: NULL
+*/
 void print_md5_hash(unsigned char *keybuf)
 {
 	int i;
@@ -288,13 +354,14 @@ void print_md5_hash(unsigned char *keybuf)
 	printk("\n");
 }
 
-/* 
-*  Function to calculate the MD5 hash of the given key. 
-*  The function prototype is based on example given in Linux documentation at 
-*  /usr/src/hw1-USER/Documentation/crypto/api-intro.txt and nfs4_make_rec_clidname 
-*  function in linux/source/fs/nfsd/nfsrecover.c 
-*/
 
+/* 
+*	Function to calculate the MD5 hash of the given key. The function prototype is based on example 
+*	given in Linux documentation at /usr/src/hw1-USER/Documentation/crypto/api-intro.txt and
+*	nfs4_make_rec_clidname function in linux/source/fs/nfsd/nfsrecover.c.
+*	Input: Key to be hashed, it's length and destination buffer to store the generated MD5 hash.
+*	Output:	0 on SUCCESS and errno on FAILURE.
+*/
 int calculate_md5_hash (char *inp_key, int keylen, char *md5_hash)
 {
 	int ret = 0;
@@ -321,6 +388,11 @@ freehash:
 }
 
 
+/*
+*	Function to rename two given files (passed as their file structure pointers)
+*	Input: File1 structure to be renamed and File2 structure to which the File1 should be renamed.
+	output: 0 on SUCCESS and errno on FAILURE. Unlinks the temp file if rename fails.	
+*/
 int file_rename(struct file *tmp_filp, struct file *out_filp)
 {
 	int err = 0;
@@ -348,8 +420,9 @@ end:
 
 
 /*
-*  Function to check if file exists and if it is regular or not 
-*  Input: File structure; Return: 0 if success, errno on failure.
+*	Function to check if file exists and if it is regular or not 
+*  	Input: File structure pointer. 
+*	Return: 0 if success, errno on failure.
 */
 int check_file (struct file *filp)
 {
@@ -368,6 +441,15 @@ end:
 	return ret;
 }
 
+
+/*
+*	Main syscall function for encryption and decryption. Uses other helper functions to open 
+*	input, temp and output files. Also, calls othetr functions to read from input file, 
+*	encrypt/decrypt data and write to tmp file. The preamble containing the Key Hash value is also
+*	stored at beginning of tmp file (first 16 bytes). If all operations are successful, renames the 
+*	tmp file to output file as a single atomic operation. Else, cleans the allocated buffers and 
+*	returns the correct errno to the user program
+*/
 asmlinkage long xcrypt(void *arg)
 {
 	int ret;

@@ -41,6 +41,12 @@ end:
 	exit(rc);
 }
 
+/*
+*	Function to read and check user provided options and verify them 
+*	Input: User provided arguments and buffer to be filled.
+*	Output: NULL; Exit the program if any conditions are violated
+*/
+
 void readargs (int argc, char *argv[], struct args *send_buf)
 {
 	int opt = 0;
@@ -153,6 +159,11 @@ freesendbuf:
 		free(send_buf);
 	exit(EXIT_FAILURE);
 }
+
+/*
+*	Print the correct usage for the user arguments in command line 
+	Input: NULL; Output: NULL
+*/
 
 void print_usage()
 {
