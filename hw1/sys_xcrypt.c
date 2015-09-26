@@ -33,6 +33,13 @@ int checkCharMemAlloc (char *ptr)
 	return 0;
 }
 
+int checkFilePathMax (const char *path)
+{
+	if (strlen(path) > PATH_MAX)
+		return -EINVAL;
+	return 0;
+}
+
 int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
 {
 	int err = 0;
@@ -48,7 +55,8 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
 		err = -EINVAL;
 		goto returnFailure;
 	}
-	
+	if ((err = checkFilePathMax(file->name)) != 0) 
+		goto returnFailure;
 	ker_buf->infile = kmalloc(strlen(file->name) + 1, GFP_KERNEL);
 	if ((err = checkCharMemAlloc(ker_buf->infile)) != 0)
 		goto returnFailure;
@@ -66,6 +74,8 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
 		err = -EINVAL;
 		goto inputFileFail;
 	}
+	if ((err = checkFilePathMax(file->name)) != 0)
+		goto inputFileFail;
 	
 	ker_buf->outfile = kmalloc(strlen(file->name) + 1, GFP_KERNEL);
 	if ((err = checkCharMemAlloc(ker_buf->infile)) != 0) 
@@ -295,13 +305,22 @@ freehash:
 	return ret;		
 }
 
+#if 0
+int file_rename(struct file *tmp_filp, struct file *out_filp)
+{
+	
+}
+#endif
+
 asmlinkage long xcrypt(void *arg)
 {
 	int ret;
 	/* dummy syscall: returns 0 for non null, -EINVAL for NULL */
 	struct args *ker_buf;
 	struct file *in_filp = NULL;
+	struct file *tmp_filp = NULL;
 	struct file *out_filp = NULL;
+	char *tmp_file;
 	int bytes_read = 0;
 	int bytes_written = 0;
 	char *read_buf;
@@ -338,44 +357,61 @@ asmlinkage long xcrypt(void *arg)
 		ret = -ENOMEM;
 		goto freewritebuf;
 	}
-	if ((out_filp = open_output_file(ker_buf->outfile, &ret, in_filp->f_path.dentry->d_inode->i_mode)) == NULL) {
+	tmp_file = kmalloc(strlen(ker_buf->infile) + TEMP_FILE_ADD_SIZE, GFP_KERNEL);
+	if (!tmp_file) {
+		ret = -ENOMEM;
+		goto freemd5hash;
+	}
+	/* Filename for the temporary file */
+	strcpy(tmp_file, ".");
+	strcat(tmp_file, ker_buf->infile);
+	strcat(tmp_file, ".tmp");
+	printk("KERN: temp file: %s\n", tmp_file);
+	/*checking max size of tmp file path */
+	if ((ret = checkFilePathMax(tmp_file)) != 0)
+		goto freetmpfilename;
+	/*Open and write to temp file */
+	if ((tmp_filp = open_output_file(tmp_file, &ret, in_filp->f_path.dentry->d_inode->i_mode)) == NULL) {
 		if (ret == -EACCES)
-			goto closeOutputFile;
+			goto closeTmpFile;
 		else
-			goto freemd5hash;
+			goto freetmpfilename;
 	}
-	/*checking both input and output files are same */
-	if (in_filp->f_path.dentry->d_inode->i_ino == out_filp->f_path.dentry->d_inode->i_ino) {
+	
+	/*checking both input and tmp files are same */
+	if (in_filp->f_path.dentry->d_inode->i_ino == tmp_filp->f_path.dentry->d_inode->i_ino) {
 		ret = -EPERM;
-		goto closeOutputFile;
+		goto closeTmpFile;
 	}
+	
 	/* Write MD5 Hash to output file if encrypting or read MD5 checksum and verify if decrypting */
 	if ((ret = calculate_md5_hash(ker_buf->keybuf, ker_buf->keylen, md5_hash)) != 0) {
 		ret = -EFAULT;
-		goto closeOutputFile;
+		goto closeTmpFile;
 	}
 	
 	if (ker_buf->flags == 1) { /*encryption */
-		if ((bytes_written = write_output_file(out_filp, md5_hash, AES_BLOCK_SIZE)) != AES_BLOCK_SIZE) {
+		if ((bytes_written = write_output_file(tmp_filp, md5_hash, AES_BLOCK_SIZE)) != AES_BLOCK_SIZE) {
 			ret = -EFAULT;
-			goto closeOutputFile;
+			goto closeTmpFile;
 		}
 	} else if (ker_buf->flags == 0) { /* Decryption */
 		if ((bytes_read = read_input_file (in_filp, read_buf, AES_BLOCK_SIZE)) != AES_BLOCK_SIZE) {
 			ret = -EFAULT;
-			goto closeOutputFile;
+			goto closeTmpFile;
 		}
 		else {
 			if ((cmp = memcmp((void *)read_buf, (void *)md5_hash, AES_BLOCK_SIZE)) != 0) {
 				printk("KERN: Decryption, MD5 hash not matching\n");
 				ret = -EINVAL;
-				goto closeOutputFile;
+				goto closeTmpFile;
 			}
 		}
 	} else {
 		ret = -EINVAL;
-		goto closeOutputFile;
+		goto closeTmpFile;
 	}
+	/* Read from input file, encrypt/decrypt and write to temp file */
 	while ((bytes_read = read_input_file (in_filp, read_buf, PAGE_SIZE)) > 0) {
 		/* encryption */
 		if (ker_buf->flags == 1)
@@ -384,22 +420,25 @@ asmlinkage long xcrypt(void *arg)
 			ret = xcrypt_aes_decrypt(ker_buf->keybuf, AES_BLOCK_SIZE, write_buf, bytes_read, read_buf, bytes_read);
 		else {
 			ret = -EINVAL;
-			goto closeOutputFile;
+			goto closeTmpFile;
 		}	
 		if (ret < 0) {
                 	ret = -EFAULT;
-                        goto closeOutputFile;
+                        goto closeTmpFile;
                 }
-		if ((bytes_written = write_output_file(out_filp, write_buf, bytes_read)) == 0) {
+		if ((bytes_written = write_output_file(tmp_filp, write_buf, bytes_read)) == 0) {
 			ret = -EINVAL;
-			goto closeOutputFile;
+			goto closeTmpFile;
 		} 
 	}
 	printk("KERN: Input file: %s\n", ker_buf->infile);
-	printk("KERN: Output file: %s\n", ker_buf->outfile);
+	printk("KERN: Tmp file: %s\n", tmp_file);
 
-closeOutputFile:
-	filp_close(out_filp, NULL);
+closeTmpFile:
+	filp_close(tmp_filp, NULL);
+freetmpfilename:
+	if (tmp_file)
+		kfree(tmp_file);
 freemd5hash:
 	if (md5_hash)
 		kfree(md5_hash);
@@ -426,7 +465,7 @@ endReturn:
 
 static int __init init_sys_xcrypt(void)
 {
-	printk("installed new sys_xcrypt module\n");
+	printk("Installed new sys_xcrypt module\n");
 	if (sysptr == NULL)
 		sysptr = xcrypt;
 	return 0;
@@ -435,8 +474,10 @@ static void  __exit exit_sys_xcrypt(void)
 {
 	if (sysptr != NULL)
 		sysptr = NULL;
-	printk("removed sys_xcrypt module\n");
+	printk("Removed sys_xcrypt module\n");
 }
 module_init(init_sys_xcrypt);
 module_exit(exit_sys_xcrypt);
 MODULE_LICENSE("GPL");
+MODULE_AUTHOR("AKHILESH");
+MODULE_DESCRIPTION("New xcrypt() system call implementation for encrypting/decrypting files using AES CTR mode");
