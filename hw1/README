@@ -1,1 +1,48 @@
-XXX: fill in
+=============== HW1 SUBMISSION CSE 506 OPERATING SYSTEMS (Akhilesh Gadde) ====================
+Implementing a new system call for encypting and decrypting files using AES algorithm. The user program reads the arguments specified by the user in command line and packs them into a buffer and sends to the kernel. The system call in the kernel encrypts/decrypts the input file and gives a return value specifying if the operation has been successful or appropriate errno on failure.
+
+Files Submitted
+================
+i. 	xcipher.c :- User program for reading arguments and calls xcrypt system call.
+ii. 	xcipher.h :- Common header file that defines struture to be passed to kernel and common definitions.
+iii. 	sys_xcrypt.c :- Loadable kernel module Code for syscall implementation. The code encrypts/decrypts the file based on the user specified arguments. My code reuses the encryption and decryption functions from CEPH file system with minor modifications to suit our use-case. The location of original functions is linux/net/ceph/crypto.c (ceph_aes_encrypt() and ceph_aes_decrypt()).
+iv.	Makefile :-  "Make/make all" compiles the user program and system call code and generate executables. "xcipher" is the user program executable used for running user program. It also generates loadable kernel module for the xcrypt systemcall.
+"make clean" is used to clean up all compiled code and next make would create a clean compiled programs
+v.	install_module.sh:-  Script to load the xcrypt system call to kernel. If the module is already loaded, it removes the existing sys_xcrypt module and loads the new module.
+vi. kernel.config:-	Kernel boot config file after configuring the minimum working kernel using make menuconfig and make.
+
+1. User Program
+----------------
+User program reads and checks the user provided inputs. Mandatory conditions like specifying either encryption/decryption, input and output file names and mandatrory argument with password (-p) and minimum password length of 7 or more characters are verified against the user input. Also, it checks if any other invalid arguments are specified. If any of the conditions fail, the user program prints an appropriate error message and exits. 
+Else, it would pack all the values in a "struct args" structure, calls the system call xcrypt and sends the struct buffer as a single void pointer to the kernel. Syscall XCRYPT processes the data and provides a return value to the user program. The key specified by the user is hashed using MD5 algorithm and copied to the keybuf in the structure.
+The user program on receiving the return value, checks and if it returns an error, the appropriate error code and name is printed using strerror() function. If successful, it displays a message - "syscall returned 0, successfully encrypted/decrypted file".
+
+
+2. XCRYPT syscall
+-----------------
+a. The xcrypt system call receives the user buffer pointer and does basic checks on it to verify it is not NULL and other access checks. userArgsCheck() funtion in the code does this functionality. Once it passes the checks, the user buffer is copied into kernel space using getname() for filenames and copy_from_user() for key. Checks are added to ensure that the pathname of input/output file names doesn't exceed the PATH_MAX of Linux. CopyFromUser() function in the code accomplishes this functionality.
+
+b. Once it passes the above checks, input file would be opened using filp_open() in READ mode which checks if the file is regular, exists and any error in opening the input file like file permissions. Additional checks like if the file is a directory/symbolic link are also handled.This functionality is coded in open_input_file() function in the code.
+
+c. The read and write buffers are allocated using kmalloc() with size of PAGE_SIZE.
+
+d. A temporary file with ".<input-file>.tmp" is created and opened in write mode for writing the encrypted/decrypted information to the file. input-file is replaced with the actual user provided input file. The permissions for the temp file are the same as that of the input file.
+
+f. If the user has specified encryption, the user provided MD5 hash key(H') is again hashed(H'') using MD5 algorithm in calculate_md5_hash() function. This value is stored as the first 16 bytes in the output file. The hex value of Hash value(H'') generated can be printed using print_md5_hash function in the code (mainly for debugging purposes).
+If the user has asked for decryption, the first 16 bytes from the input file are read and compared with the hashed value of the input key (H'') using linux memcmp() function. If both match, the decryption will proceed. Else, it would display an error in dmesg using printk and retrun appropriate error back to the user.
+
+g. If encryption, max of PAGE_SIZE bytes are read from the input file in read_input_file() function and stored in a buffer. Here set_fs() and get_fs() are used to avoid the address checking. The bytes_returned is used to see the actual number of bytes read, since the read may be less than actual PAGE_SIZE. The data read is encrypted using xcrypt_aes_encrypt() function that uses AES encryption in CTR mode and writes the encrypted info to the temp file.
+If decryption, the encrypted data is similarly read from input file and decrypted using xcrypt_aes_decrypt() function in code and writes to the temp file.
+
+h. After the writes are successful to the tmpfile, now vfs_rename() funtion in file_rename() function in code is used to rename the temp file to output filename. Checks like permissions of output file are valid, if it is a regulatr file, etc are checked before opening and writing to output file.
+If the creation/opening or writing to output file fails, the temp file is removed using vfs_unlink() function. Failure cases include output permissions not valid, input and output pointing to same file using links or output file is directory, etc. All failure cases lead to deletion of tmp file.
+Also, if the output file already exists and the encryption fails mid-way, the temp file is only deleted and there is no change on the actual filename thus preserving the integrity of the original output file.
+
+References
+------------
+1. http://stackoverflow.com/questions/7627723/how-to-create-a-md5-hash-of-a-string-in-c 
+2. Linux Documentation: /usr/src/hw1-akgadde/Documentation/crypto/api-intro.txt
+3. http://stackoverflow.com/questions/7627723/how-to-create-a-md5-hash-of-a-string-in-c
+4. http://stackoverflow.com/questions/15875569/returning-wrong-md5-hash-in-c
+5. Get_fs and set_fs: http://marc.info/?l=kernelnewbies&m=99625785525027&w=2
+6. aes_encrypt() and aes_decrypt() functions in CEPH file system at linux/net/ceph/crypto.c in Linux source code.
