@@ -18,6 +18,10 @@ int main(int argc, char *argv[])
 {
 	int rc = 0;
 	struct args *send_buf = (struct args *) malloc(sizeof(struct args));
+	if (!send_buf) {
+		rc = -ENOMEM;
+		goto end;
+	}
 	//void *dummy = (void *) argv[1];
 	readargs(argc, argv, send_buf);
   	rc = syscall(__NR_xcrypt, (void *)send_buf);
@@ -25,6 +29,15 @@ int main(int argc, char *argv[])
 		printf("syscall returned %d\n", rc);
 	else
 		printf("syscall returned %d (errno=%d)\n", rc, errno);
+	if (send_buf->infile)
+		free(send_buf->infile);
+	if (send_buf->outfile)
+		free(send_buf->outfile);
+	if (send_buf->keybuf)
+		free(send_buf->keybuf);
+	if (send_buf)
+		free(send_buf);
+end:
 	exit(rc);
 }
 
@@ -52,6 +65,10 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			break;
 		case 'p':
 			send_buf->keybuf = (char *) malloc(MD5_DIGEST_LENGTH);
+			if (!send_buf) {
+				printf("Malloc: No Memory\n");
+				goto failend;
+			}
 			MD5((const unsigned char *) optarg, strlen(optarg), md5_hash);
 			send_buf->keylen = MD5_DIGEST_LENGTH;
 			printf("MD5_DIGEST_LEN: %d\n", MD5_DIGEST_LENGTH);
@@ -82,6 +99,10 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 		if (optind < argc) {
 			len = strlen(argv[optind]);
 			send_buf->infile = (char *) malloc(len);
+			if (!send_buf) {
+				printf("Malloc: No memory\n");
+				goto freekeybuf;
+			}
 			strncpy(send_buf->infile, argv[optind], len+1);
 			optind++;
 			if (optind >= argc) {
@@ -90,6 +111,10 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			}
 			len = strlen(argv[optind]);
 			send_buf->outfile = (char *) malloc(len);
+			if (!send_buf) {
+				printf("Malloc: No memory\n");
+				goto freeinfile;
+			}
                         strncpy(send_buf->outfile, argv[optind], len+1);
 			optind++;
 			if (optind < argc) {
@@ -102,6 +127,14 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			printf("Input and Output file names not specified\n");
 			exit (EXIT_FAILURE);
 		}
+	return;
+
+freeinfile:
+	free(send_buf->infile);
+freekeybuf:
+	free(send_buf->keybuf);
+failend:
+	exit(EXIT_FAILURE);
 }
 
 void print_usage()

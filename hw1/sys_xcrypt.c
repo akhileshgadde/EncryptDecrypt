@@ -88,7 +88,7 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
                 goto keybufFail;
 	}
 	ker_buf->keybuf[usr_buf->keylen] = '\0';
-	goto returnFailure;
+	return err;
 keybufFail:
 	kfree(ker_buf->keybuf);
 outputFileFail:
