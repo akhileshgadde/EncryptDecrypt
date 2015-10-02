@@ -5,7 +5,7 @@
 #include <errno.h>
 #include <sys/syscall.h>
 #include <unistd.h>
-#include "xhw1.h"
+#include "xcipher.h"
 
 #ifndef __NR_xcrypt
 #error xcrypt system call not defined
@@ -26,8 +26,8 @@ int main(int argc, char *argv[])
 	//void *dummy = (void *) argv[1];
 	readargs(argc, argv, send_buf);
 	printf("main: Keybuf: %s, length: %d\n", send_buf->keybuf, strlen(send_buf->keybuf));
-        #if 0
-  	rc = syscall(__NR_xcrypt, dummy);
+        #if 1
+  	rc = syscall(__NR_xcrypt, (void *)send_buf);
 	if (rc == 0)
 		printf("syscall returned %d\n", rc);
 	else
@@ -96,6 +96,8 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 				printf("Un-recognizable arguments after filenames\n");
                         	exit (EXIT_FAILURE);
 			}
+			printf("input file: %s\n", send_buf->infile);
+			printf("output file: %s\n", send_buf->outfile);
 		} else if (opts->help_flag == 0) {
 			printf("Input and Output file names not specified\n");
 			exit (EXIT_FAILURE);
