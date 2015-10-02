@@ -17,6 +17,7 @@ typedef struct {
 	int encr_flag;
 	int decr_flag;
 	int help_flag;
+	char *keybuf;
 }cmd_line_args;
 
 int main(int argc, char *argv[])
@@ -25,14 +26,11 @@ int main(int argc, char *argv[])
 	struct args *send_buf = (struct args *) calloc(0, sizeof(struct args));
 	//void *dummy = (void *) argv[1];
 	readargs(argc, argv, send_buf);
-	printf("main: Keybuf: %s, length: %d\n", send_buf->keybuf, strlen(send_buf->keybuf));
-        #if 1
   	rc = syscall(__NR_xcrypt, (void *)send_buf);
 	if (rc == 0)
 		printf("syscall returned %d\n", rc);
 	else
 		printf("syscall returned %d (errno=%d)\n", rc, errno);
-	#endif 
 	exit(rc);
 }
 
@@ -60,9 +58,8 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			break;
 		case 'p':
 			send_buf->keylen = strlen(optarg);
-			send_buf->keybuf = (char *) calloc(0, send_buf->keylen);
-			strcpy(send_buf->keybuf, optarg);
-			//printf("Pass phrase: %s\n", optarg);
+			send_buf->keybuf = (char *) malloc(send_buf->keylen + 1);
+			strncpy(send_buf->keybuf, optarg, send_buf->keylen + 1);
 			break;
 		case 'h':
 			opts->help_flag = 1;

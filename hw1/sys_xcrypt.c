@@ -37,39 +37,43 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
 		goto returnFailure;
 	}
 	ker_buf->infile = kmalloc(strlen(file->name) + 1, GFP_KERNEL);
-	if ((strncpy(ker_buf->infile, file->name, strlen(file->name) + 1)) == NULL) {
+	if ((err = checkCharMemAlloc(ker_buf->infile)) != 0)
+		goto returnFailure;
+	strncpy(ker_buf->infile, file->name, strlen(file->name));
+	if (ker_buf->infile == NULL) {
+		err = -ENOENT;
+		goto inputFileFail;
+	}
+	/* Making sure it's a NULL terminated string */
+	ker_buf->infile[strlen(file->name)] = '\0';	
+	putname(file);
+	file = NULL; /* Use the same variable for next getname calls also */
+	if ((file = getname(usr_buf->outfile)) == NULL) {
 		err = -EINVAL;
 		goto inputFileFail;
 	}
-		
-	printk("Input filename: %s\n", file->name);
-	putname(file);
-	#if 0
-	//ker_buf->infile = kmalloc(strlen(usr_buf->infile) + 1, GFP_KERNEL);
-	//if (checkCharMemAlloc(ker_buf->infile) != 0) 
-	//	goto returnFailure;
-	if ((err = copy_from_user(ker_buf->infile, usr_buf->infile, sizeof(usr_buf->infile))) != 0)
-		goto inputFileFail;
-	ker_buf->outfile = kmalloc(strlen(usr_buf->outfile) + 1, GFP_KERNEL);
-	if (checkCharMemAlloc(ker_buf->outfile) != 0)
-		goto inputFileFail;
-	if ((err = copy_from_user(ker_buf->outfile, usr_buf->outfile, sizeof(usr_buf->outfile))) != 0)
+	ker_buf->outfile = kmalloc(strlen(file->name) + 1, GFP_KERNEL);
+	if ((err = checkCharMemAlloc(ker_buf->infile)) != 0) 
+                goto inputFileFail;
+	strncpy(ker_buf->outfile, file->name, strlen(file->name) + 1);
+	if (ker_buf->outfile == NULL) {
+		err = -ENOENT;
 		goto outputFileFail;
+	}
+	/* Making sure it's a NULL terminated string */
+        ker_buf->outfile[strlen(file->name)] = '\0';
+        putname(file);
 	ker_buf->keybuf = kmalloc(usr_buf->keylen + 1, GFP_KERNEL);
-	if (checkCharMemAlloc(ker_buf->keybuf) != 0)
-		goto outputFileFail;
-	if ((err = copy_from_user(ker_buf->outfile, usr_buf->outfile, sizeof(usr_buf->outfile))) != 0)
-		goto keybuffail;
-	/* NULL terminate the kmalloc'ed buffers since copy_from_user doesn't do that */
-	ker_buf->infile[strlen(usr_buf->infile)] = '\0';
-	ker_buf->outfile[strlen(usr_buf->outfile)] = '\0';
-	ker_buf->keybuf[strlen(usr_buf->keybuf)] = '\0';
+        if ((err = checkCharMemAlloc(ker_buf->keybuf)) != 0)
+                goto outputFileFail;
+	if ((err = copy_from_user(ker_buf->keybuf, usr_buf->keybuf, usr_buf->keylen)) != 0)
+                goto keybufFail;
+	ker_buf->keybuf[usr_buf->keylen] = '\0';
 
-keybuffail:
+keybufFail:
 	kfree(ker_buf->keybuf);
 outputFileFail:
 	kfree(ker_buf->outfile);
-	#endif	
 inputFileFail:
 	kfree(ker_buf->infile);
 returnFailure:
