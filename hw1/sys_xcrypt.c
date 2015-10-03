@@ -11,10 +11,15 @@ asmlinkage extern long (*sysptr)(void *arg);
 int userArgsCheck(struct args *usr_buf)
 {
 	int err = 0;
-	if (usr_buf == NULL)
+	if ((usr_buf == NULL) || (!access_ok(VERIFY_READ, usr_buf, sizeof(struct args))))
 		err = -EFAULT;
-	if (usr_buf->keybuf == NULL)
-		err = -EFAULT; 	
+	if ((usr_buf->keybuf == NULL) || (!access_ok(VERIFY_READ, usr_buf->keybuf, usr_buf->keylen)))
+		err = -EFAULT;
+	if ((usr_buf->infile == NULL) || (!access_ok(VERIFY_READ, usr_buf->infile, sizeof(usr_buf->infile))))
+		err = -EFAULT;
+	if ((usr_buf->outfile == NULL) || (!access_ok(VERIFY_READ, usr_buf->outfile, sizeof(usr_buf->outfile))))
+                err = -EFAULT;
+
 	return err;
 }
 

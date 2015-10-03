@@ -60,6 +60,7 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			break;
 		case 'p':
 			send_buf->keybuf = (char *) malloc(MD5_DIGEST_LENGTH);
+			//send_buf->keybuf = NULL;
 			MD5((const unsigned char *) optarg, sizeof(optarg), md5_hash); 
 			send_buf->keylen = MD5_DIGEST_LENGTH;
 			printf("MD5 Hash: \n");
@@ -84,6 +85,7 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 		}
 		if (optind < argc) {
 			len = strlen(argv[optind]);
+			printf("Optarg: %s\n", optarg);
 			send_buf->infile = (char *) malloc(len);
 			strncpy(send_buf->infile, argv[optind], len);
 			optind++;
@@ -92,6 +94,7 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 				exit (EXIT_FAILURE);
 			}
 			len = strlen(argv[optind]);
+			printf("Optarg: %s\n", optarg);
 			send_buf->outfile = (char *) malloc(len);
                         strncpy(send_buf->outfile, argv[optind], len);
 			optind++;
