@@ -14,13 +14,6 @@
 void readargs(int argc, char *argv[], struct args *send_buf);
 void print_usage();
 
-typedef struct {
-	int encr_flag;
-	int decr_flag;
-	int help_flag;
-	char *keybuf;
-}cmd_line_args;
-
 int main(int argc, char *argv[])
 {
 	int rc = 0;
@@ -39,19 +32,18 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 {
 	int opt = 0;
 	int i;
+	int encr_flag = 0, decr_flag = 0, help_flag = 0; 
 	unsigned char md5_hash[MD5_DIGEST_LENGTH];
-	cmd_line_args *opts;
 	int len;
-	opts = (cmd_line_args *) malloc (sizeof(cmd_line_args));
 	opterr = 0;
 	while ((opt = getopt(argc, argv, "edc:p:h")) != -1) {
 		switch (opt) {
 		case 'e':
-			opts->encr_flag = 1;
+			encr_flag = 1;
 			send_buf->flags = 1;
 			break;
 		case 'd':
-			opts->decr_flag = 1;
+			decr_flag = 1;
 			send_buf->flags = 0;
 			break;
 		case 'c':
@@ -60,16 +52,22 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			break;
 		case 'p':
 			send_buf->keybuf = (char *) malloc(MD5_DIGEST_LENGTH);
-			//send_buf->keybuf = NULL;
 			MD5((const unsigned char *) optarg, sizeof(optarg), md5_hash); 
 			send_buf->keylen = MD5_DIGEST_LENGTH;
+			#if 1
 			printf("MD5 Hash: \n");
 			for (i = 0; i < 16; i++)
 				printf("%02x", md5_hash[i]);
-			//strncpy(send_buf->keybuf, optarg, send_buf->keylen + 1);
+			printf("\n");
+			#endif
+			for (i = 0; i < 16; ++i)
+				sprintf(&send_buf->keybuf[i*2], "%02x", (unsigned int) md5_hash[i]);
+			//for (i = 0; i < 16; ++i)
+			//	send_buf->keybuf[i] = md5_hash[i];
+			printf("Keybuf: %s\n", send_buf->keybuf);
 			break;
 		case 'h':
-			opts->help_flag = 1;
+			help_flag = 1;
 			print_usage();
 			break;
 		case '?':
@@ -79,13 +77,12 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			exit(EXIT_FAILURE);
 		}
 	}
-		if ((opts->encr_flag == 1) && (opts->decr_flag == 1)) {
+		if ((encr_flag == 1) && (decr_flag == 1)) {
 			printf("Can perform only encryption or decryption at a time\n");
 			exit(EXIT_FAILURE);
 		}
 		if (optind < argc) {
 			len = strlen(argv[optind]);
-			printf("Optarg: %s, len: %d\n", argv[optind], len);
 			send_buf->infile = (char *) malloc(len);
 			strncpy(send_buf->infile, argv[optind], len+1);
 			optind++;
@@ -94,7 +91,6 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 				exit (EXIT_FAILURE);
 			}
 			len = strlen(argv[optind]);
-			printf("Optarg: %s, len: %d\n", argv[optind], len);
 			send_buf->outfile = (char *) malloc(len);
                         strncpy(send_buf->outfile, argv[optind], len+1);
 			optind++;
@@ -104,7 +100,7 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			}
 			printf("input file: %s\n", send_buf->infile);
 			printf("output file: %s\n", send_buf->outfile);
-		} else if (opts->help_flag == 0) {
+		} else if (help_flag == 0) {
 			printf("Input and Output file names not specified\n");
 			exit (EXIT_FAILURE);
 		}

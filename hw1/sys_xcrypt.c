@@ -19,7 +19,6 @@ int userArgsCheck(struct args *usr_buf)
 		err = -EFAULT;
 	if ((usr_buf->outfile == NULL) || (!access_ok(VERIFY_READ, usr_buf->outfile, sizeof(usr_buf->outfile))))
                 err = -EFAULT;
-	printk("Error in userArgsCheck: %d\n", err);
 	return err;
 }
 
@@ -75,16 +74,18 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
 	/* Making sure it's a NULL terminated string */
         ker_buf->outfile[strlen(file->name)] = '\0';
         putname(file);
-	
-	ker_buf->keybuf = kmalloc(usr_buf->keylen, GFP_KERNEL);
+
+	printk("KERN: usrbuf_keybuf: %s, keylen: %d\n", usr_buf->keybuf, usr_buf->keylen);	
+	ker_buf->keybuf = kmalloc(usr_buf->keylen + 1, GFP_KERNEL);
         if ((err = checkCharMemAlloc(ker_buf->keybuf)) != 0)
                 goto outputFileFail;
 	if ((err = copy_from_user(ker_buf->keybuf, usr_buf->keybuf, usr_buf->keylen)) != 0) {
 		err = -EFAULT;
                 goto keybufFail;
 	}
-	//ker_buf->keybuf[usr_buf->keylen] = '\0';
-
+	printk("KERN: copy_from_user keybuf ret value: %d\n", err);
+	ker_buf->keybuf[usr_buf->keylen] = '\0';
+	printk("KERN: Usr_buf->keybuf: %s, ker_buf->keybuf: %s\n", usr_buf->keybuf, ker_buf->keybuf);
 keybufFail:
 	kfree(ker_buf->keybuf);
 outputFileFail:
@@ -185,6 +186,7 @@ asmlinkage long xcrypt(void *arg)
 	memset(ker_buf, 0, sizeof(struct args));
 	if ((ret = CopyFromUser(arg, ker_buf)) != 0)
 		goto copyFail;
+	printk("KERN: Ret after copy_from_user %d\n", ret);
 	/* Open input and output files for reading and writing respectively */
 	if ((in_filp = open_Input_File(ker_buf->infile, &ret)) == NULL)
 		goto endReturn;
