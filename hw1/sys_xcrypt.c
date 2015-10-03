@@ -139,15 +139,22 @@ int read_input_file(struct file *filp, void *buf)
 	set_fs(KERNEL_DS);
 	bytes = vfs_read(filp, buf, PAGE_SIZE, &filp->f_pos);
 	set_fs(oldfs);
+	printk("Bytes read: %d\n", bytes);
 	return bytes;
 }
 
-#if 0
-int write_output_file(struct file *filp, void *buf)
+
+int write_output_file(struct file *filp, void *buf, int size)
 {
-		
+	mm_segment_t oldfs;
+	int bytes = 0;
+	oldfs = get_fs();
+	set_fs(KERNEL_DS);
+	bytes = vfs_write(filp, buf, size, &filp->f_pos);
+	set_fs(oldfs);
+        printk("Bytes written: %d\n", bytes);
+        return bytes;
 }
-#endif
 
 asmlinkage long xcrypt(void *arg)
 {
@@ -156,7 +163,8 @@ asmlinkage long xcrypt(void *arg)
 	struct args *ker_buf;
 	struct file *in_filp = NULL;
 	struct file *out_filp = NULL;
-	int bytes;
+	int bytes_read = 0;
+	int bytes_written = 0;
 	char *read_buf;
 	ker_buf = kmalloc(sizeof(struct args), GFP_KERNEL);
 	if (!ker_buf) {
@@ -176,12 +184,15 @@ asmlinkage long xcrypt(void *arg)
 		ret = -ENOMEM;
 		goto endReturn;
 	}
-	if ((out_filp = open_output_file(ker_buf->outfile, &ret, in_filp->f_path.dentry->d_inode->i_size)) == NULL)
+	if ((out_filp = open_output_file(ker_buf->outfile, &ret, in_filp->f_path.dentry->d_inode->i_mode)) == NULL)
 		goto endReturn;
 	if (ret == -EACCES)
 		goto closeOutputFile;
-	while ((bytes = read_input_file (in_filp, read_buf)) != 0) {
-		printk("%s ", read_buf);
+	while ((bytes_read = read_input_file (in_filp, read_buf)) > 0) {
+		if ((bytes_written = write_output_file(out_filp, read_buf, bytes_read)) == 0) {
+			ret = -EINVAL;
+			goto closeOutputFile;
+		} 
 	}
 	printk("KERN: Input file: %s\n", ker_buf->infile);
 	printk("KERN: Output file: %s\n", ker_buf->outfile);
