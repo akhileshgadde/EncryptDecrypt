@@ -4,7 +4,11 @@
 #include <linux/slab.h> /*kmalloc*/
 #include <linux/namei.h>
 #include <linux/fs.h>
+#include <linux/crypto.h>
+#include <linux/scatterlist.h>
 #include "xcipher.h"
+
+static const u8 *aes_iv = (u8 *)XCRYPT_AES_IV;
 
 asmlinkage extern long (*sysptr)(void *arg);
 
@@ -85,7 +89,7 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
 	}
 	printk("KERN: copy_from_user keybuf ret value: %d\n", err);
 	ker_buf->keybuf[usr_buf->keylen] = '\0';
-	printk("KERN: Usr_buf->keybuf: %s, ker_buf->keybuf: %s\n", usr_buf->keybuf, ker_buf->keybuf);
+	//printk("KERN: Usr_buf->keybuf: %s, ker_buf->keybuf: %s\n", usr_buf->keybuf, ker_buf->keybuf);
 keybufFail:
 	kfree(ker_buf->keybuf);
 outputFileFail:
@@ -168,6 +172,82 @@ int write_output_file(struct file *filp, void *buf, int size)
         return bytes;
 }
 
+/* Encryption function has been copied from linux/net/ceph/crypto.c (ceph_aes_encrypt) and made a few modifications to suit our system call. Code credits go to the original author of the file */
+
+static int xcrypt_aes_encrypt(const void *key, int key_len, void *dst_buf, 
+			      size_t dst_len, const void *src_buf, size_t src_len)
+{
+	struct scatterlist sg_in[1];
+	struct sg_table sg_out;
+	struct crypto_blkcipher *tfm = crypto_alloc_blkcipher("ctr(aes)", 0, CRYPTO_ALG_ASYNC);
+	struct blkcipher_desc desc = { .tfm = tfm, .flags = 0 };
+	int ret;
+	void *iv;
+	int ivsize;
+	if (IS_ERR(tfm))
+		return PTR_ERR(tfm);
+	dst_len = src_len;
+	
+	sg_init_table(sg_in, 1);
+	sg_set_buf(&sg_in[0], src_buf, src_len);
+	//ret = setup_sgtable(&sg_out, &prealloc_sg, dst_buf, dst_len);
+	//if (ret)
+	//	goto out_tfm;
+	crypto_blkcipher_setkey((void *)tfm, key, key_len);
+	iv =  (&crypto_blkcipher_tfm(tfm)->crt_blkcipher)->iv;
+	ivsize = crypto_blkcipher_alg(tfm)->ivsize;
+	memcpy(iv, aes_iv, ivsize);
+	
+	ret = crypto_blkcipher_encrypt (&desc, sg_out, sg_in, src_len);
+	if (ret < 0) {
+		printk("KERN: xcrypt_aes_encrypt failed %d\n", ret);
+		goto out_tfm;
+	}
+
+//out_sg:
+//	teardown_sgtable(&sg_out);
+out_tfm:
+	crypto_free_blkcipher(tfm);
+	return ret;
+}
+
+/* Decryption function has been copied from linux/net/ceph/crypto.c (ceph_aes_decrypt) and made a few modifications to suit our system call. Code credits go to the original author of the file */
+
+static int xcrypt_aes_decrypt(const void *key, int key_len, void *dst_buf,
+			      size_t dst_len, const void *src_buf, size_t src_len)
+{
+	struct sg_table sg_in;
+	struct scatterlist sg_out[1];
+	struct crypto_blkcipher *tfm = crypto_alloc_blkcipher("ctr(aes)", 0, CRYPTO_ALG_ASYNC);
+	struct blkcipher_desc desc = { .tfm = tfm };
+	void *iv;
+	int ivsize;
+	int ret;
+	if (IS_ERR(tfm))
+		return PTR_ERR(tfm);
+	sg_init_table(sg_out, 1);
+	sg_set_buf(&sg_out[0], dst_buf, dst_len);
+	//ret = setup_sgtable(&sg_in, &prealloc_sg, src_buf, src_len);
+	//if (ret)
+	//	goto out_tfm;
+	crypto_blkcipher_setkey((void *)tfm, key, key_len);
+	iv = (&crypto_blkcipher_tfm(tfm)->crt_blkcipher)->iv;
+	ivsize = (crypto_blkcipher_alg(tfm))->ivsize;
+	memcpy(iv, aes_iv, ivsize);
+	
+	ret = crypto_blkcipher_decrypt(&desc, sg_out, sg_in, src_len);
+	if (ret < 0) {
+		printk("KERN: xcrypt_aes_decrypt failed %d\n", ret);
+		goto out_tfm;
+	}
+
+//out_sg:
+//	teardown_sgtable(&sg_in);
+out_tfm:
+	crypto_free_blkcipher(tfm);
+	return ret;
+}	
+
 asmlinkage long xcrypt(void *arg)
 {
 	int ret;
@@ -178,6 +258,7 @@ asmlinkage long xcrypt(void *arg)
 	int bytes_read = 0;
 	int bytes_written = 0;
 	char *read_buf;
+	char *write_buf;
 	ker_buf = kmalloc(sizeof(struct args), GFP_KERNEL);
 	if (!ker_buf) {
 		ret = -ENOMEM;
@@ -197,6 +278,11 @@ asmlinkage long xcrypt(void *arg)
 		ret = -ENOMEM;
 		goto endReturn;
 	}
+	write_buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
+	if (!write_buf) {
+		ret = -ENOMEM;
+		goto freeReadBuf;
+	}
 	if ((out_filp = open_output_file(ker_buf->outfile, &ret, in_filp->f_path.dentry->d_inode->i_mode)) == NULL)
 		goto endReturn;
 	if (ret == -EACCES)
@@ -207,17 +293,33 @@ asmlinkage long xcrypt(void *arg)
 		goto closeOutputFile;
 	}
 	while ((bytes_read = read_input_file (in_filp, read_buf)) > 0) {
-		if ((bytes_written = write_output_file(out_filp, read_buf, bytes_read)) == 0) {
+		/* encryption */
+		if (ker_buf->flags == 1) 
+			ret = xcrypt_aes_encrypt(ker_buf->keybuf, AES_BLOCK_SIZE, write_buf, PAGE_SIZE, read_buf, PAGE_SIZE);
+		else if (ker_buf->flags == 0)
+			ret = xcrypt_aes_decrypt(ker_buf->keybuf, AES_BLOCK_SIZE, write_buf, PAGE_SIZE, read_buf, PAGE_SIZE);
+		else {
+			ret = -EINVAL;
+			goto closeOutputFile;
+		}	
+		 if (ret < 0) {
+                 	ret = -EFAULT;
+                        goto closeOutputFile;
+                 }	
+		
+		if ((bytes_written = write_output_file(out_filp, write_buf, bytes_read)) == 0) {
 			ret = -EINVAL;
 			goto closeOutputFile;
 		} 
 	}
 	printk("KERN: Input file: %s\n", ker_buf->infile);
 	printk("KERN: Output file: %s\n", ker_buf->outfile);
-	printk("KERN: Keybuf: %s\n", ker_buf->keybuf);
 
 closeOutputFile:
 	filp_close(out_filp, NULL);
+	kfree(write_buf);
+freeReadBuf:
+	kfree(read_buf);
 closeInputFile:
 	filp_close(in_filp, NULL);
 copyFail:

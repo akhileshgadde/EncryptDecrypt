@@ -60,11 +60,11 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 				printf("%02x", md5_hash[i]);
 			printf("\n");
 			#endif
+			memcpy(send_buf->keybuf, md5_hash, MD5_DIGEST_LENGTH);
+			send_buf->keybuf[MD5_DIGEST_LENGTH] = '\0';
 			for (i = 0; i < 16; ++i)
-				sprintf(&send_buf->keybuf[i*2], "%02x", (unsigned int) md5_hash[i]);
-			//for (i = 0; i < 16; ++i)
-			//	send_buf->keybuf[i] = md5_hash[i];
-			printf("Keybuf: %s\n", send_buf->keybuf);
+				printf("%02x", send_buf->keybuf[i]);
+			printf("\n");
 			break;
 		case 'h':
 			help_flag = 1;
