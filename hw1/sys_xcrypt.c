@@ -29,13 +29,16 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
 	struct filename *file = NULL;
 	if((err = userArgsCheck(usr_buf)) != 0)
 		goto returnFailure;
-	if ((err = copy_from_user(ker_buf, usr_buf, sizeof(struct args)) != 0))
+	if ((err = copy_from_user(ker_buf, usr_buf, sizeof(struct args)) != 0)) {
+		err = -EFAULT;
 		goto returnFailure;
+	}
 	file = getname(usr_buf->infile);
 	if (!file) {
 		err = -EINVAL;
 		goto returnFailure;
 	}
+	
 	ker_buf->infile = kmalloc(strlen(file->name) + 1, GFP_KERNEL);
 	if ((err = checkCharMemAlloc(ker_buf->infile)) != 0)
 		goto returnFailure;
@@ -47,11 +50,13 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
 	/* Making sure it's a NULL terminated string */
 	ker_buf->infile[strlen(file->name)] = '\0';	
 	putname(file);
+	
 	file = NULL; /* Use the same variable for next getname calls also */
 	if ((file = getname(usr_buf->outfile)) == NULL) {
 		err = -EINVAL;
 		goto inputFileFail;
 	}
+	
 	ker_buf->outfile = kmalloc(strlen(file->name) + 1, GFP_KERNEL);
 	if ((err = checkCharMemAlloc(ker_buf->infile)) != 0) 
                 goto inputFileFail;
@@ -63,11 +68,14 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
 	/* Making sure it's a NULL terminated string */
         ker_buf->outfile[strlen(file->name)] = '\0';
         putname(file);
+	
 	ker_buf->keybuf = kmalloc(usr_buf->keylen + 1, GFP_KERNEL);
         if ((err = checkCharMemAlloc(ker_buf->keybuf)) != 0)
                 goto outputFileFail;
-	if ((err = copy_from_user(ker_buf->keybuf, usr_buf->keybuf, usr_buf->keylen)) != 0)
+	if ((err = copy_from_user(ker_buf->keybuf, usr_buf->keybuf, usr_buf->keylen)) != 0) {
+		err = -EFAULT;
                 goto keybufFail;
+	}
 	ker_buf->keybuf[usr_buf->keylen] = '\0';
 
 keybufFail:
@@ -80,11 +88,76 @@ returnFailure:
 	return err;
 }
 
+struct file* open_Input_File(const char *filename, int *err)
+{
+	struct file *filp = NULL;
+	if (filename == NULL)
+		goto returnFailure;
+	filp = filp_open(filename, O_EXCL | O_RDONLY, 0);
+	if (!filp || IS_ERR(filp)) {
+                printk("KERN: Inputfile read error %d\n", (int) PTR_ERR(filp));
+                *err = -ENOENT;
+		goto returnFailure;
+        }
+	if ((!filp->f_op) || (!filp->f_op->read)) {
+		printk("KERN: No Read permission on Input file %d\n", (int) PTR_ERR(filp));
+		*err = -EACCES;
+                goto returnFailure;
+	}
+	filp->f_pos = 0;
+returnFailure:
+	return filp;
+}
+
+struct file* open_output_file(const char *filename, int *err, umode_t mode)
+{
+	struct file *filp = NULL;
+	if (filename == NULL)
+		goto returnFailure;
+	filp = filp_open(filename, O_WRONLY | O_CREAT, mode);
+	if (!filp || IS_ERR(filp)) {
+                printk("KERN: Outputfile write error %d\n", (int) PTR_ERR(filp));
+                *err = -ENOENT;
+		goto returnFailure;
+        }
+	if ((!filp->f_op) || (!filp->f_op->write)) {
+		printk("KERN: No write permission on Output file %d\n", (int) PTR_ERR(filp));
+                *err = -EACCES;
+		goto returnFailure;
+	}
+	filp->f_pos = 0;
+returnFailure:
+	return filp;
+}
+
+
+int read_input_file(struct file *filp, void *buf)
+{
+	mm_segment_t oldfs;
+	int bytes = 0;
+	oldfs = get_fs();
+	set_fs(KERNEL_DS);
+	bytes = vfs_read(filp, buf, PAGE_SIZE, &filp->f_pos);
+	set_fs(oldfs);
+	return bytes;
+}
+
+#if 0
+int write_output_file(struct file *filp, void *buf)
+{
+		
+}
+#endif
+
 asmlinkage long xcrypt(void *arg)
 {
 	int ret;
 	/* dummy syscall: returns 0 for non null, -EINVAL for NULL */
 	struct args *ker_buf;
+	struct file *in_filp = NULL;
+	struct file *out_filp = NULL;
+	int bytes;
+	char *read_buf;
 	ker_buf = kmalloc(sizeof(struct args), GFP_KERNEL);
 	if (!ker_buf) {
 		ret = -ENOMEM;
@@ -93,9 +166,31 @@ asmlinkage long xcrypt(void *arg)
 	memset(ker_buf, 0, sizeof(struct args));
 	if ((ret = CopyFromUser(arg, ker_buf)) != 0)
 		goto copyFail;
+	/* Open input and output files for reading and writing respectively */
+	if ((in_filp = open_Input_File(ker_buf->infile, &ret)) == NULL)
+		goto endReturn;
+	if (ret == -EACCES)
+		goto closeInputFile;
+	read_buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
+	if (!read_buf) {
+		ret = -ENOMEM;
+		goto endReturn;
+	}
+	if ((out_filp = open_output_file(ker_buf->outfile, &ret, in_filp->f_path.dentry->d_inode->i_size)) == NULL)
+		goto endReturn;
+	if (ret == -EACCES)
+		goto closeOutputFile;
+	while ((bytes = read_input_file (in_filp, read_buf)) != 0) {
+		printk("%s ", read_buf);
+	}
 	printk("KERN: Input file: %s\n", ker_buf->infile);
 	printk("KERN: Output file: %s\n", ker_buf->outfile);
 	printk("KERN: Keybuf: %s\n", ker_buf->keybuf);
+
+closeOutputFile:
+	filp_close(out_filp, NULL);
+closeInputFile:
+	filp_close(in_filp, NULL);
 copyFail:
 	kfree(ker_buf);
 endReturn:
