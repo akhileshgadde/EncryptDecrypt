@@ -85,18 +85,18 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 		}
 		if (optind < argc) {
 			len = strlen(argv[optind]);
-			printf("Optarg: %s\n", optarg);
+			printf("Optarg: %s, len: %d\n", argv[optind], len);
 			send_buf->infile = (char *) malloc(len);
-			strncpy(send_buf->infile, argv[optind], len);
+			strncpy(send_buf->infile, argv[optind], len+1);
 			optind++;
 			if (optind >= argc) {
 				printf("Output file not specified\n");
 				exit (EXIT_FAILURE);
 			}
 			len = strlen(argv[optind]);
-			printf("Optarg: %s\n", optarg);
+			printf("Optarg: %s, len: %d\n", argv[optind], len);
 			send_buf->outfile = (char *) malloc(len);
-                        strncpy(send_buf->outfile, argv[optind], len);
+                        strncpy(send_buf->outfile, argv[optind], len+1);
 			optind++;
 			if (optind < argc) {
 				printf("Un-recognizable arguments after filenames\n");

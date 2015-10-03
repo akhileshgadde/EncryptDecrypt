@@ -19,7 +19,7 @@ int userArgsCheck(struct args *usr_buf)
 		err = -EFAULT;
 	if ((usr_buf->outfile == NULL) || (!access_ok(VERIFY_READ, usr_buf->outfile, sizeof(usr_buf->outfile))))
                 err = -EFAULT;
-
+	printk("Error in userArgsCheck: %d\n", err);
 	return err;
 }
 
@@ -104,19 +104,18 @@ struct file* open_Input_File(const char *filename, int *err)
 	if (!filp || IS_ERR(filp)) {
                 printk("KERN: Inputfile read error %d\n", (int) PTR_ERR(filp));
                 *err = -ENOENT;
+		filp = NULL;
 		goto returnFailure;
         }
 	if ((!filp->f_op) || (!filp->f_op->read)) {
 		printk("KERN: No Read permission on Input file %d\n", (int) PTR_ERR(filp));
 		*err = -EACCES;
+		filp = NULL;
                 goto returnFailure;
 	}
 	filp->f_pos = 0;
 returnFailure:
-	if (filp)
-		return filp;
-	else
-		return NULL;
+	return filp;
 }
 
 struct file* open_output_file(const char *filename, int *err, umode_t mode)
@@ -128,19 +127,18 @@ struct file* open_output_file(const char *filename, int *err, umode_t mode)
 	if (!filp || IS_ERR(filp)) {
                 printk("KERN: Outputfile write error %d\n", (int) PTR_ERR(filp));
                 *err = -ENOENT;
+		filp = NULL;
 		goto returnFailure;
         }
 	if ((!filp->f_op) || (!filp->f_op->write)) {
 		printk("KERN: No write permission on Output file %d\n", (int) PTR_ERR(filp));
                 *err = -EACCES;
+		filp = NULL;
 		goto returnFailure;
 	}
 	filp->f_pos = 0;
 returnFailure:
-	if (filp)
-		return filp;
-	else
-		return NULL;
+	return filp;
 }
 
 
