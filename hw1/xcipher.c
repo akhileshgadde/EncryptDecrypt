@@ -4,6 +4,7 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/syscall.h>
+#include <openssl/md5.h>
 #include <unistd.h>
 #include "xcipher.h"
 
@@ -37,7 +38,8 @@ int main(int argc, char *argv[])
 void readargs (int argc, char *argv[], struct args *send_buf)
 {
 	int opt = 0;
-	//char *result = NULL;
+	int i;
+	unsigned char md5_hash[MD5_DIGEST_LENGTH];
 	cmd_line_args *opts;
 	int len;
 	opts = (cmd_line_args *) malloc (sizeof(cmd_line_args));
@@ -57,9 +59,13 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			printf("Len: %d\n", strlen(optarg));
 			break;
 		case 'p':
-			send_buf->keylen = strlen(optarg);
-			send_buf->keybuf = (char *) malloc(send_buf->keylen + 1);
-			strncpy(send_buf->keybuf, optarg, send_buf->keylen + 1);
+			send_buf->keybuf = (char *) malloc(MD5_DIGEST_LENGTH);
+			MD5((const unsigned char *) optarg, sizeof(optarg), md5_hash); 
+			send_buf->keylen = MD5_DIGEST_LENGTH;
+			printf("MD5 Hash: \n");
+			for (i = 0; i < 16; i++)
+				printf("%02x", md5_hash[i]);
+			//strncpy(send_buf->keybuf, optarg, send_buf->keylen + 1);
 			break;
 		case 'h':
 			opts->help_flag = 1;

@@ -10,10 +10,12 @@ asmlinkage extern long (*sysptr)(void *arg);
 
 int userArgsCheck(struct args *usr_buf)
 {
+	int err = 0;
 	if (usr_buf == NULL)
-		return -EFAULT;
-	
-	return 0;
+		err = -EFAULT;
+	if (usr_buf->keybuf == NULL)
+		err = -EFAULT; 	
+	return err;
 }
 
 int checkCharMemAlloc (char *ptr)
@@ -69,14 +71,14 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
         ker_buf->outfile[strlen(file->name)] = '\0';
         putname(file);
 	
-	ker_buf->keybuf = kmalloc(usr_buf->keylen + 1, GFP_KERNEL);
+	ker_buf->keybuf = kmalloc(usr_buf->keylen, GFP_KERNEL);
         if ((err = checkCharMemAlloc(ker_buf->keybuf)) != 0)
                 goto outputFileFail;
 	if ((err = copy_from_user(ker_buf->keybuf, usr_buf->keybuf, usr_buf->keylen)) != 0) {
 		err = -EFAULT;
                 goto keybufFail;
 	}
-	ker_buf->keybuf[usr_buf->keylen] = '\0';
+	//ker_buf->keybuf[usr_buf->keylen] = '\0';
 
 keybufFail:
 	kfree(ker_buf->keybuf);
@@ -106,7 +108,10 @@ struct file* open_Input_File(const char *filename, int *err)
 	}
 	filp->f_pos = 0;
 returnFailure:
-	return filp;
+	if (filp)
+		return filp;
+	else
+		return NULL;
 }
 
 struct file* open_output_file(const char *filename, int *err, umode_t mode)
@@ -127,7 +132,10 @@ struct file* open_output_file(const char *filename, int *err, umode_t mode)
 	}
 	filp->f_pos = 0;
 returnFailure:
-	return filp;
+	if (filp)
+		return filp;
+	else
+		return NULL;
 }
 
 
@@ -188,6 +196,11 @@ asmlinkage long xcrypt(void *arg)
 		goto endReturn;
 	if (ret == -EACCES)
 		goto closeOutputFile;
+	/*checking both input and output files are same */
+	if (in_filp->f_path.dentry->d_inode->i_ino == out_filp->f_path.dentry->d_inode->i_ino) {
+		ret = -EPERM;
+		goto closeOutputFile;
+	}
 	while ((bytes_read = read_input_file (in_filp, read_buf)) > 0) {
 		if ((bytes_written = write_output_file(out_filp, read_buf, bytes_read)) == 0) {
 			ret = -EINVAL;
