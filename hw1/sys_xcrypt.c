@@ -87,9 +87,7 @@ int CopyFromUser (struct args *usr_buf, struct args *ker_buf)
 		err = -EFAULT;
                 goto keybufFail;
 	}
-	printk("KERN: copy_from_user keybuf ret value: %d\n", err);
 	ker_buf->keybuf[usr_buf->keylen] = '\0';
-	//printk("KERN: Usr_buf->keybuf: %s, ker_buf->keybuf: %s\n", usr_buf->keybuf, ker_buf->keybuf);
 keybufFail:
 	kfree(ker_buf->keybuf);
 outputFileFail:
@@ -329,7 +327,6 @@ asmlinkage long xcrypt(void *arg)
 		ret = -EFAULT;
 		goto closeOutputFile;
 	}
-	printk("KERN: Encryption flag: %d\n", ker_buf->flags);
 	
 	if (ker_buf->flags == 1) { /*encryption */
 		if ((bytes_written = write_output_file(out_filp, md5_hash, AES_BLOCK_SIZE)) != AES_BLOCK_SIZE) {
@@ -352,7 +349,6 @@ asmlinkage long xcrypt(void *arg)
 		ret = -EINVAL;
 		goto closeOutputFile;
 	}
-	printk("KERN: Before actual read: Input file %s, Output file: %s\n", ker_buf->infile, ker_buf->outfile);
 	while ((bytes_read = read_input_file (in_filp, read_buf, PAGE_SIZE)) > 0) {
 		/* encryption */
 		if (ker_buf->flags == 1)
@@ -367,7 +363,6 @@ asmlinkage long xcrypt(void *arg)
                 	ret = -EFAULT;
                         goto closeOutputFile;
                 }
-		printk("KERN: Before actual write, pos=%lld\n", out_filp->f_pos);
 		if ((bytes_written = write_output_file(out_filp, write_buf, bytes_read)) == 0) {
 			ret = -EINVAL;
 			goto closeOutputFile;
