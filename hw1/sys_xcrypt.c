@@ -288,35 +288,45 @@ asmlinkage long xcrypt(void *arg)
 	int bytes_read = 0;
 	int bytes_written = 0;
 	char *read_buf;
+	int cmp = 0;
 	char *write_buf;
-	char md5_hash[AES_BLOCK_SIZE];
+	char *md5_hash;
 	ker_buf = kmalloc(sizeof(struct args), GFP_KERNEL);
 	if (!ker_buf) {
 		ret = -ENOMEM;
-		goto endReturn; //to be corrected
+		goto endReturn; //to be corrected
 	}
 	memset(ker_buf, 0, sizeof(struct args));
 	if ((ret = CopyFromUser(arg, ker_buf)) != 0)
 		goto copyFail;
 	/* Open input and output files for reading and writing respectively */
-	if ((in_filp = open_Input_File(ker_buf->infile, &ret)) == NULL)
-		goto endReturn;
-	if (ret == -EACCES)
-		goto closeInputFile;
+	if ((in_filp = open_Input_File(ker_buf->infile, &ret)) == NULL) {
+		if (ret == -EACCES)
+			goto closeInputFile;
+		else
+			goto copyFail;
+	}
 	read_buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
 	if (!read_buf) {
 		ret = -ENOMEM;
-		goto endReturn;
+		goto closeInputFile;
 	}
 	write_buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
 	if (!write_buf) {
 		ret = -ENOMEM;
 		goto freeReadBuf;
 	}
-	if ((out_filp = open_output_file(ker_buf->outfile, &ret, in_filp->f_path.dentry->d_inode->i_mode)) == NULL)
-		goto endReturn;
-	if (ret == -EACCES)
-		goto closeOutputFile;
+	md5_hash = kmalloc(AES_BLOCK_SIZE, GFP_KERNEL);
+	if (!md5_hash) {
+		ret = -ENOMEM;
+		goto freewritebuf;
+	}
+	if ((out_filp = open_output_file(ker_buf->outfile, &ret, in_filp->f_path.dentry->d_inode->i_mode)) == NULL) {
+		if (ret == -EACCES)
+			goto closeOutputFile;
+		else
+			goto freemd5hash;
+	}
 	/*checking both input and output files are same */
 	if (in_filp->f_path.dentry->d_inode->i_ino == out_filp->f_path.dentry->d_inode->i_ino) {
 		ret = -EPERM;
@@ -339,11 +349,13 @@ asmlinkage long xcrypt(void *arg)
 			goto closeOutputFile;
 		}
 		else {
-			if (memcmp(read_buf, md5_hash, AES_BLOCK_SIZE) != 0) {
+			printk("KERN: Comparing both MD5_hashes, AES_BLOCK_SIZE: %d\n", AES_BLOCK_SIZE);
+			if ((cmp = memcmp((void *)read_buf, (void *)md5_hash, AES_BLOCK_SIZE)) != 0) {
 				printk("KERN: Decryption, MD5 hash not matching\n");
 				ret = -EINVAL;
 				goto closeOutputFile;
 			}
+			printk("KERN: memcmp Return value: %d\n", cmp);
 		}
 	} else {
 		ret = -EINVAL;
@@ -373,6 +385,9 @@ asmlinkage long xcrypt(void *arg)
 
 closeOutputFile:
 	filp_close(out_filp, NULL);
+freemd5hash:
+	kfree(md5_hash);
+freewritebuf:
 	kfree(write_buf);
 freeReadBuf:
 	kfree(read_buf);

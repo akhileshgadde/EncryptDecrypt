@@ -54,7 +54,8 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			send_buf->keybuf = (char *) malloc(MD5_DIGEST_LENGTH);
 			MD5((const unsigned char *) optarg, sizeof(optarg), md5_hash); 
 			send_buf->keylen = MD5_DIGEST_LENGTH;
-			#if 0
+			printf("MD5_DIGEST_LEN: %d\n", MD5_DIGEST_LENGTH);
+			#if 1
 			printf("MD5 Hash: \n");
 			for (i = 0; i < 16; i++)
 				printf("%02x", md5_hash[i]);
@@ -62,9 +63,6 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			#endif
 			memcpy(send_buf->keybuf, md5_hash, MD5_DIGEST_LENGTH);
 			send_buf->keybuf[MD5_DIGEST_LENGTH] = '\0';
-			for (i = 0; i < 16; ++i)
-				printf("%02x", send_buf->keybuf[i]);
-			printf("\n");
 			break;
 		case 'h':
 			help_flag = 1;
