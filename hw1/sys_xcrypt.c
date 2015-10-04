@@ -147,15 +147,15 @@ returnFailure:
 }
 
 
-int read_input_file(struct file *filp, void *buf)
+int read_input_file(struct file *filp, void *buf, size_t len)
 {
 	mm_segment_t oldfs;
 	int bytes = 0;
 	oldfs = get_fs();
 	set_fs(KERNEL_DS);
-	bytes = vfs_read(filp, buf, PAGE_SIZE, &filp->f_pos);
+	bytes = vfs_read(filp, buf, len, &filp->f_pos);
 	set_fs(oldfs);
-	printk("Bytes read: %d\n", bytes);
+	printk("KERN: Bytes read: %d\n", bytes);
 	return bytes;
 }
 
@@ -168,7 +168,7 @@ int write_output_file(struct file *filp, void *buf, int size)
 	set_fs(KERNEL_DS);
 	bytes = vfs_write(filp, buf, size, &filp->f_pos);
 	set_fs(oldfs);
-        printk("Bytes written: %d\n", bytes);
+        printk("KERN: Bytes written: %d\n", bytes);
         return bytes;
 }
 
@@ -202,15 +202,12 @@ static int xcrypt_aes_encrypt(const void *key, int key_len, void *dst_buf,
 	iv =  crypto_blkcipher_crt(tfm)->iv;
 	ivsize = crypto_blkcipher_ivsize(tfm);
 	memcpy(iv, aes_iv, ivsize);
-	printk("KERN: Encrypt, after memcpy before encryption\n");
 	ret = crypto_blkcipher_encrypt (&desc, sg_out, sg_in, src_len);
 	if (ret < 0) {
 		printk("KERN: xcrypt_aes_encrypt failed %d\n", ret);
 		goto out_tfm;
 	}
 
-//out_sg:
-//	teardown_sgtable(&sg_out);
 out_tfm:
 	crypto_free_blkcipher(tfm);
 	printk("KERN: Encrypt return value: %d\n", ret);
@@ -234,28 +231,54 @@ static int xcrypt_aes_decrypt(const void *key, int key_len, void *dst_buf,
 	sg_init_table(sg_out, 1);
 	sg_set_buf(sg_in, src_buf, src_len);
 	sg_set_buf(sg_out, dst_buf, dst_len);
-	printk("KERN: After setting buf in decrypt\n"); //: dst_buf: %s, src_buf: %s\n", dst_buf, src_buf);
 	//ret = setup_sgtable(&sg_in, &prealloc_sg, src_buf, src_len);
 	//if (ret)
 	//	goto out_tfm;
-	printk("KERN: Decrypt, before setting key\n");
 	crypto_blkcipher_setkey((void *)tfm, key, key_len);
 	iv = crypto_blkcipher_crt(tfm)->iv;
 	ivsize = crypto_blkcipher_ivsize(tfm);
 	memcpy(iv, aes_iv, ivsize);
-	printk("KERN: decrypt, before calling decrypt\n");
 	ret = crypto_blkcipher_decrypt(&desc, sg_out, sg_in, src_len);
 	if (ret < 0) {
 		printk("KERN: xcrypt_aes_decrypt failed %d\n", ret);
 		goto out_tfm;
 	}
 
-//out_sg:
-//	teardown_sgtable(&sg_in);
 out_tfm:
 	crypto_free_blkcipher(tfm);
 	return ret;
 }	
+
+/* 
+*  Function to calculate the MD5 hash of the given key. 
+*  The function prototype is based on example given in Linux documentation at 
+*  /usr/src/hw1-USER/Documentation/crypto/api-intro.txt and nfs4_make_rec_clidname 
+*  function in linux/source/fs/nfsd/nfsrecover.c 
+*/
+
+int calculate_md5_hash (char *inp_key, int keylen, char *md5_hash)
+{
+	int ret = 0;
+	struct scatterlist sg[1];
+	struct crypto_hash *tfm;
+	struct hash_desc desc;
+	tfm = crypto_alloc_hash("md5", 0, CRYPTO_ALG_ASYNC);
+	if (IS_ERR(tfm))
+		return PTR_ERR(tfm);
+	
+	sg_init_table(sg, 1);
+	sg_set_buf(sg, inp_key, keylen);
+	desc.tfm = tfm;
+	desc.flags = 0;
+	
+	if((ret = crypto_hash_digest(&desc, sg, 1, md5_hash)) != 0) {
+		ret = -EFAULT;
+		goto freehash;	
+	}
+freehash:
+	crypto_free_hash(tfm);
+	return ret;		
+}
 
 asmlinkage long xcrypt(void *arg)
 {
@@ -268,6 +291,7 @@ asmlinkage long xcrypt(void *arg)
 	int bytes_written = 0;
 	char *read_buf;
 	char *write_buf;
+	char md5_hash[AES_BLOCK_SIZE];
 	ker_buf = kmalloc(sizeof(struct args), GFP_KERNEL);
 	if (!ker_buf) {
 		ret = -ENOMEM;
@@ -276,7 +300,6 @@ asmlinkage long xcrypt(void *arg)
 	memset(ker_buf, 0, sizeof(struct args));
 	if ((ret = CopyFromUser(arg, ker_buf)) != 0)
 		goto copyFail;
-	printk("KERN: Ret after copy_from_user %d\n", ret);
 	/* Open input and output files for reading and writing respectively */
 	if ((in_filp = open_Input_File(ker_buf->infile, &ret)) == NULL)
 		goto endReturn;
@@ -301,22 +324,50 @@ asmlinkage long xcrypt(void *arg)
 		ret = -EPERM;
 		goto closeOutputFile;
 	}
-	while ((bytes_read = read_input_file (in_filp, read_buf)) > 0) {
+	/* Write MD5 Hash to output file if encrypting or read MD5 checksum and verify if decrypting */
+	if ((ret = calculate_md5_hash(ker_buf->keybuf, ker_buf->keylen, md5_hash)) != 0) {
+		ret = -EFAULT;
+		goto closeOutputFile;
+	}
+	printk("KERN: Encryption flag: %d\n", ker_buf->flags);
+	
+	if (ker_buf->flags == 1) { /*encryption */
+		if ((bytes_written = write_output_file(out_filp, md5_hash, AES_BLOCK_SIZE)) != AES_BLOCK_SIZE) {
+			ret = -EFAULT;
+			goto closeOutputFile;
+		}
+	} else if (ker_buf->flags == 0) { /* Decryption */
+		if ((bytes_read = read_input_file (in_filp, read_buf, AES_BLOCK_SIZE)) != AES_BLOCK_SIZE) {
+			ret = -EFAULT;
+			goto closeOutputFile;
+		}
+		else {
+			if (memcmp(read_buf, md5_hash, AES_BLOCK_SIZE) != 0) {
+				printk("KERN: Decryption, MD5 hash not matching\n");
+				ret = -EINVAL;
+				goto closeOutputFile;
+			}
+		}
+	} else {
+		ret = -EINVAL;
+		goto closeOutputFile;
+	}
+	printk("KERN: Before actual read: Input file %s, Output file: %s\n", ker_buf->infile, ker_buf->outfile);
+	while ((bytes_read = read_input_file (in_filp, read_buf, PAGE_SIZE)) > 0) {
 		/* encryption */
-		printk("KERN: encrypt flag: %d\n", ker_buf->flags);
-		if (ker_buf->flags == 1) 
-			ret = xcrypt_aes_encrypt(ker_buf->keybuf, AES_BLOCK_SIZE, write_buf, bytes_written, read_buf, bytes_read);
-		else if (ker_buf->flags == 0)
+		if (ker_buf->flags == 1)
+			ret = xcrypt_aes_encrypt(ker_buf->keybuf, AES_BLOCK_SIZE, write_buf, bytes_read, read_buf, bytes_read);
+		else if (ker_buf->flags == 0) /* decryption */
 			ret = xcrypt_aes_decrypt(ker_buf->keybuf, AES_BLOCK_SIZE, write_buf, bytes_read, read_buf, bytes_read);
 		else {
 			ret = -EINVAL;
 			goto closeOutputFile;
 		}	
-		 if (ret < 0) {
-                 	ret = -EFAULT;
+		if (ret < 0) {
+                	ret = -EFAULT;
                         goto closeOutputFile;
-                 }	
-		printk("KERN: Before writing to output file\n");
+                }
+		printk("KERN: Before actual write, pos=%lld\n", out_filp->f_pos);
 		if ((bytes_written = write_output_file(out_filp, write_buf, bytes_read)) == 0) {
 			ret = -EINVAL;
 			goto closeOutputFile;

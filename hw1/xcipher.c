@@ -54,7 +54,7 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 			send_buf->keybuf = (char *) malloc(MD5_DIGEST_LENGTH);
 			MD5((const unsigned char *) optarg, sizeof(optarg), md5_hash); 
 			send_buf->keylen = MD5_DIGEST_LENGTH;
-			#if 1
+			#if 0
 			printf("MD5 Hash: \n");
 			for (i = 0; i < 16; i++)
 				printf("%02x", md5_hash[i]);
