@@ -17,7 +17,7 @@ void print_usage();
 int main(int argc, char *argv[])
 {
 	int rc = 0;
-	struct args *send_buf = (struct args *) calloc(0, sizeof(struct args));
+	struct args *send_buf = (struct args *) malloc(sizeof(struct args));
 	//void *dummy = (void *) argv[1];
 	readargs(argc, argv, send_buf);
   	rc = syscall(__NR_xcrypt, (void *)send_buf);
