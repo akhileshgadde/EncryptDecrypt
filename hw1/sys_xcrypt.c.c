@@ -160,13 +160,12 @@ int check_file (struct file *filp)
 {
 	int ret = 0;
 	printk("KERN: Checking File is regular\n");
-	if (S_ISDIR(filp->f_path.dentry->d_inode->i_mode)) {
-        ret = -EISDIR;
-        goto end;
-    }
-    if (!S_ISREG(filp->f_path.dentry->d_inode->i_mode)) {
-        ret = -EPERM;
-        goto end;
+	if (!S_ISREG(filp->f_path.dentry->d_inode->i_mode)) {
+		ret = -EIO;
+		goto end;
+	} else if (S_ISDIR(filp->f_path.dentry->d_inode->i_mode)) {
+		ret = -EPERM;
+		goto end;
 	}
 end:
 	return ret;
@@ -535,7 +534,7 @@ asmlinkage long xcrypt(void *arg)
 			goto freetmpfilename;
 	}
 	if ((ret = check_file(tmp_filp) != 0))
-            goto freetmpfilename;
+                goto freetmpfilename;
 	
 	/* Write MD5 Hash to output file if encrypting or read MD5 checksum and verify if decrypting */
 	if ((ret = calculate_md5_hash(ker_buf->keybuf, ker_buf->keylen, md5_hash)) != 0) {

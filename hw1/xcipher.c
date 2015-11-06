@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
 	else
 		printf("syscall returned %d (Error %d: %s)\n", rc, errno, strerror(errno));
 	if (send_buf->infile)
-		free(send_buf->infile);
+	     free(send_buf->infile);
 	if (send_buf->outfile)
 		free(send_buf->outfile);
 	if (send_buf->keybuf)
@@ -115,24 +115,24 @@ void readargs (int argc, char *argv[], struct args *send_buf)
 		}
 		if (optind < argc) {
 			len = strlen(argv[optind]);
-			send_buf->infile = (char *) malloc(len);
+			send_buf->infile = (char *) malloc(len+1);
 			if (!send_buf) {
 				printf("Malloc: No memory\n");
 				goto freekeybuf;
 			}
-			strncpy(send_buf->infile, argv[optind], len+1);
+			strcpy(send_buf->infile, argv[optind]);
 			optind++;
 			if (optind >= argc) {
 				printf("Output file not specified\n");
 				goto freeinfile;
 			}
 			len = strlen(argv[optind]);
-			send_buf->outfile = (char *) malloc(len);
+			send_buf->outfile = (char *) malloc(len+1);
 			if (!send_buf) {
 				printf("Malloc: No memory\n");
 				goto freeinfile;
 			}
-                        strncpy(send_buf->outfile, argv[optind], len+1);
+            strcpy(send_buf->outfile, argv[optind]);
 			optind++;
 			if (optind < argc) {
 				printf("Un-recognizable arguments after filenames\n");
