@@ -1140,3 +1140,14 @@ int nonseekable_open(struct inode *inode, struct file *filp)
 }
 
 EXPORT_SYMBOL(nonseekable_open);
+
+asmlinkage long (*sysptr)(void *arg) = NULL;
+
+asmlinkage long sys_xcrypt(void *arg)
+{
+	if (sysptr != NULL)
+		return (*sysptr)(arg);
+	else
+		return -ENOTSUPP;
+}
+EXPORT_SYMBOL(sysptr);
