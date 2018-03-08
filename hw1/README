@@ -1,8 +1,7 @@
-=============== HW1 SUBMISSION CSE 506 OPERATING SYSTEMS (Akhilesh Gadde) ====================
 Implementing a new system call for encypting and decrypting files using AES algorithm. The user program reads the arguments specified by the user in command line and packs them into a buffer and sends to the kernel. The system call in the kernel encrypts/decrypts the input file and gives a return value specifying if the operation has been successful or appropriate errno on failure. AES CTR mode is used for encryption and decryption and no buffer padding is necessary if we use CTR mode. 
 
-Files Submitted
-================
+Files 
+======
 i. 	xcipher.c :- User program for reading arguments and calls xcrypt system call.
 ii. 	xcipher.h :- Common header file that defines struture to be passed to kernel and common definitions.
 iii. 	sys_xcrypt.c :- Loadable kernel module Code for syscall implementation. The code encrypts/decrypts the file based on the user specified arguments. My code reuses the encryption and decryption functions from CEPH file system with minor modifications to suit our use-case. The location of original functions is linux/net/ceph/crypto.c (ceph_aes_encrypt() and ceph_aes_decrypt()).
